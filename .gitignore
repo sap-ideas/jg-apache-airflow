@@ -1,0 +1,15 @@
+# Local secrets — never commit
+.env
+
+# Runtime data (regenerated on every deploy)
+logs/
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+
+# Local editor/tooling
+.vscode/
+.idea/
+
+# Ad-hoc local exports (query dumps, debug files) — keep only what code actually reads
+*.xlsx

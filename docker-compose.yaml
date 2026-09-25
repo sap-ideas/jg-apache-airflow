@@ -1,0 +1,204 @@
+version: '3.8'
+
+x-airflow-common:
+  &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  image: airflow-nexus:2.8.1-python3.11
+  # Load repo `.env` into the container (access_token_pusat, AIRFLOW_UID, etc.).
+  # Relying only on ${access_token_pusat:-} interpolation can yield empty if compose
+  # doesn’t pick up `.env` at parse time—then it overrides any value from env_file.
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # Encrypt Airflow Variables/Connections at rest (set in `.env`)
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:?set_in_env}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    
+    # MySQL Database Connections (values come from .env — see .env.example)
+    DB_LAKE_HOST: ${DB_LAKE_HOST:?set_in_env}
+    DB_LAKE_USER: ${DB_LAKE_USER:?set_in_env}
+    DB_LAKE_PASSWORD: ${DB_LAKE_PASSWORD:?set_in_env}
+    DB_LAKE_NAME: ${DB_LAKE_NAME:?set_in_env}
+
+    DB_WAREHOUSE_HOST: ${DB_WAREHOUSE_HOST:?set_in_env}
+    DB_WAREHOUSE_USER: ${DB_WAREHOUSE_USER:?set_in_env}
+    DB_WAREHOUSE_PASSWORD: ${DB_WAREHOUSE_PASSWORD:?set_in_env}
+    DB_WAREHOUSE_NAME: ${DB_WAREHOUSE_NAME:?set_in_env}
+
+    # KSJ Link PostgreSQL
+    KSJ_LINK_HOST: ${KSJ_LINK_HOST:?set_in_env}
+    # d_location DB only (location service); d_transaction / d_rider / etc. use KSJ_LINK_HOST
+    KSJ_LINK_HOST_LOCATION: ${KSJ_LINK_HOST_LOCATION:?set_in_env}
+    KSJ_LINK_USER: ${KSJ_LINK_USER:?set_in_env}
+    KSJ_LINK_PASSWORD: ${KSJ_LINK_PASSWORD:?set_in_env}
+    KSJ_LINK_PORT: ${KSJ_LINK_PORT:-5432}
+    KSJ_LINK_DB_TRANSACTION: ${KSJ_LINK_DB_TRANSACTION:-d_transaction}
+    KSJ_LINK_DB_LOCATION: ${KSJ_LINK_DB_LOCATION:-d_location}
+    KSJ_LINK_DB_PAYMENT: ${KSJ_LINK_DB_PAYMENT:-d_payment}
+    KSJ_LINK_DB_RIDER: ${KSJ_LINK_DB_RIDER:-d_rider}
+    KSJ_LINK_DB_CMS: ${KSJ_LINK_DB_CMS:-d_cms}
+    KSJ_LINK_DB_JIWA_KSJ: ${KSJ_LINK_DB_JIWA_KSJ:-jiwa-ksj}
+
+    # JiwaPlus (consumer app) PostgreSQL
+    JIWAPLUS_HOST: ${JIWAPLUS_HOST:?set_in_env}
+    JIWAPLUS_DATABASE: ${JIWAPLUS_DATABASE:?set_in_env}
+    JIWAPLUS_USER: ${JIWAPLUS_USER:?set_in_env}
+    JIWAPLUS_PASSWORD: ${JIWAPLUS_PASSWORD:?set_in_env}
+    JIWAPLUS_PORT: ${JIWAPLUS_PORT:-5432}
+
+    # iSeller Pusat API token: prefer Airflow Variable `access_token_pusat` (UI),
+    # fallback to env var if you want.
+    access_token_pusat: ${access_token_pusat:-}
+
+    # Power Automate webhook (Teams Adaptive Card) — used as env fallback if Airflow Variable is unset
+    POWER_AUTOMATE_TEAMS_WEBHOOK_URL: ${POWER_AUTOMATE_TEAMS_WEBHOOK_URL:-}
+
+    # Python Path
+    # /opt/airflow/plugins is the standard location for shared cross-DAG utilities
+    # (e.g. common/db_helpers.py — imported as `from common.db_helpers import ...`)
+    PYTHONPATH: '/opt/airflow/dags:/opt/airflow/config:/opt/airflow/plugins'
+    
+    # ============================================
+    # LOG RETENTION & CLEANUP SETTINGS
+    # ============================================
+    # Automatically delete task logs older than this number of days
+    AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '7'
+    
+    # Maximum number of DAG runs to keep per DAG in the database
+    AIRFLOW__CORE__MAX_NUM_RUNS_PER_DAG: '25'
+    
+    # Automatically clean up timed out task instances
+    AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
+    
+    # How often to check for DAGs (seconds) - affects cleanup frequency
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '300'
+    
+    # Kill tasks that have been running too long (seconds)
+    AIRFLOW__CORE__DAGRUN_TIMEOUT: '86400'  # 24 hours
+    
+    # Task instance log file template
+    AIRFLOW__LOGGING__LOG_FILENAME_TEMPLATE: 'dag_id={{ ti.dag_id }}/run_id={{ ti.run_id }}/task_id={{ ti.task_id }}/attempt={{ try_number }}.log'
+
+    # Python deps (pymysql, etc.) are baked into the image — see Dockerfile.airflow
+
+  volumes:
+    - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
+    - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
+    - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
+    - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    # So `pip install -r /opt/airflow/requirements.txt` works (pymysql, psycopg2, etc.)
+    - ${AIRFLOW_PROJ_DIR:-.}/requirements.txt:/opt/airflow/requirements.txt:ro
+  # Bypass flaky in-container DNS for MySQL (same IP as `getent hosts` on host when VPN is up).
+  # Update IP if DB moves. Override with DBLAKE_EXTRA_HOST_IP in .env if needed.
+  extra_hosts:
+    - "dblake.jiwa.prod:${DBLAKE_EXTRA_HOST_IP:-147.139.146.242}"
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /sources/logs /sources/dags /sources/plugins /sources/config
+        chown -R "$${AIRFLOW_UID}:0" /sources/{logs,dags,plugins,config}
+        exec /entrypoint airflow version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+    user: "0:0"
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}:/sources
+
+  airflow-cli:
+    <<: *airflow-common
+    profiles:
+      - debug
+    environment:
+      <<: *airflow-common-env
+      CONNECTION_CHECK_MAX_COUNT: "0"
+    command:
+      - bash
+      - -c
+      - airflow
+
+volumes:
+  postgres-db-volume:

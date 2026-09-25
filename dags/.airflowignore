@@ -1,0 +1,15 @@
+# Files/dirs the DagBag must NOT try to import as DAG files.
+#
+# With DAG_DISCOVERY_SAFE_MODE (default on), Airflow imports every .py under
+# dags/ whose contents mention BOTH "airflow" and "dag" -- even helper modules.
+# The pipelines/ packages are helpers, not DAGs: their dag_*.py adds pipelines/
+# to sys.path before importing them, so importing one standalone fails on its
+# sibling imports (`from extract import ...`) and shows up as a Broken DAG.
+#
+# Ignoring them here does NOT affect the dag_*.py files that import them --
+# .airflowignore only controls DAG discovery, not Python imports.
+#
+# Syntax is regex (AIRFLOW__CORE__DAG_IGNORE_FILE_SYNTAX defaults to "regexp").
+
+pipelines/
+common/

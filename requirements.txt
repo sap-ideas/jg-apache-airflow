@@ -1,0 +1,20 @@
+# Python dependencies for Airflow DAGs
+# Airflow already includes: pandas, sqlalchemy
+
+# MySQL connectivity
+mysql-connector-python==8.2.0
+pymysql==1.1.0
+
+# PostgreSQL connectivity
+psycopg2-binary==2.9.9
+
+# Timezone support
+pendulum==3.0.0
+
+# Load .env for config modules when run outside Docker (notebooks, manual scripts)
+python-dotenv==1.0.1
+
+# HTTP (Teams / Power Automate webhooks)
+requests>=2.31.0
+
+

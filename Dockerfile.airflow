@@ -1,0 +1,8 @@
+# Extends official Airflow image with DAG dependencies (pymysql, etc.).
+# Airflow 2.8+ entrypoint refuses _PIP_ADDITIONAL_REQUIREMENTS when the bootstrap
+# container runs as root — baking deps here is the supported approach.
+FROM apache/airflow:2.8.1-python3.11
+
+COPY requirements.txt /requirements.txt
+USER airflow
+RUN pip install --no-cache-dir -r /requirements.txt
