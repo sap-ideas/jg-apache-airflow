@@ -316,21 +316,21 @@ def send_teams_pusat_completed(
     executed_at_display: str,
     webhook_url: str | None = None,
 ) -> None:
-    """After full run — only backfill fulfillment summary (Teams)."""
-    bf_rows = [
-        ["Orders fulfilled", format_int_commas(int(backfill_stats.get("total_fulfilled", 0)))],
-        ["Fulfilled amount", f"Rp {float(backfill_stats.get('fulfilled_amount', 0) or 0):,.0f}"],
-        ["Orders still unfulfilled", format_int_commas(int(backfill_stats.get("total_unfulfilled", 0)))],
-        ["Unfulfilled amount", f"Rp {float(backfill_stats.get('unfulfilled_amount', 0) or 0):,.0f}"],
-        ["Detail rows dumped", format_int_commas(int(backfill_stats.get("total_details_dumped", 0)))],
-    ]
-    bf_blocks = section_column_table(
-        section_title="Backfill fulfillment",
-        column_headers=["Metric", "Value"],
-        column_horizontal_alignments=["Left", "Right"],
-        rows=bf_rows,
-        empty_message="—",
-    )
+    """After full run (or run_mode=dwh_only, where backfill_stats is empty)."""
+    if backfill_stats:
+        status_lines = [text_block("Backfill fulfillment finished. Summary is shown below.", is_subtle=True, spacing="Small")]
+        detail_blocks = _backfill_summary_blocks(backfill_stats)
+    else:
+        ok = sum(1 for r in results.values() if r.get("status") == "SUCCESS")
+        status_lines = [
+            text_block(
+                "Data Lake check skipped (run_mode=dwh_only). DWH summary tables were redumped directly.",
+                is_subtle=True,
+                spacing="Small",
+            ),
+            text_block(f"DWH tables: {ok}/{len(results)} SUCCESS", weight="Bolder", spacing="Small"),
+        ]
+        detail_blocks = []
 
     body: list[dict[str, Any]] = [
         text_block(CARD_TITLE, weight="Bolder", size="Large"),
@@ -340,17 +340,61 @@ def send_teams_pusat_completed(
             "style": "good",
             "bleed": True,
             "spacing": "Medium",
+            "items": [text_block("ETL completed", weight="Bolder"), *status_lines],
+        },
+    ]
+    body.extend(detail_blocks)
+    body.append(text_block("", spacing="Medium"))
+    body.append(_meta_facts(dag_id, run_id, executed_at_display))
+    _post_card(body, webhook_url)
+
+
+def send_teams_pusat_datalake_only(
+    *,
+    period_start: str,
+    period_end: str,
+    backfill_stats: dict[str, Any],
+    dag_id: str,
+    run_id: str,
+    executed_at_display: str,
+    webhook_url: str | None = None,
+) -> None:
+    body: list[dict[str, Any]] = [
+        text_block(CARD_TITLE, weight="Bolder", size="Large"),
+        text_block(f"Period: {_period_line(period_start, period_end)}", is_subtle=True, spacing="None"),
+        {
+            "type": "Container",
+            "style": "good",
+            "bleed": True,
+            "spacing": "Medium",
             "items": [
-                text_block("ETL completed", weight="Bolder"),
+                text_block("Data Lake updated — DWH not touched", weight="Bolder"),
                 text_block(
-                    "Backfill fulfillment finished. Summary is shown below.",
+                    "Run mode datalake_only: backfill fulfillment finished, DWH summary tables were intentionally skipped.",
                     is_subtle=True,
                     spacing="Small",
                 ),
             ],
         },
     ]
-    body.extend(bf_blocks)
+    body.extend(_backfill_summary_blocks(backfill_stats or {}))
     body.append(text_block("", spacing="Medium"))
     body.append(_meta_facts(dag_id, run_id, executed_at_display))
     _post_card(body, webhook_url)
+
+
+def _backfill_summary_blocks(backfill_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [
+        ["Orders fulfilled", format_int_commas(int(backfill_stats.get("total_fulfilled", 0)))],
+        ["Fulfilled amount", f"Rp {float(backfill_stats.get('fulfilled_amount', 0) or 0):,.0f}"],
+        ["Orders still unfulfilled", format_int_commas(int(backfill_stats.get("total_unfulfilled", 0)))],
+        ["Unfulfilled amount", f"Rp {float(backfill_stats.get('unfulfilled_amount', 0) or 0):,.0f}"],
+        ["Detail rows dumped", format_int_commas(int(backfill_stats.get("total_details_dumped", 0)))],
+    ]
+    return section_column_table(
+        section_title="Backfill fulfillment",
+        column_headers=["Metric", "Value"],
+        column_horizontal_alignments=["Left", "Right"],
+        rows=rows,
+        empty_message="—",
+    )
