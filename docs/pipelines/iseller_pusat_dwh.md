@@ -20,6 +20,20 @@ File: `dag_etl_iseller_pusat_dwh.py`
 
 **Date window**: `end_date` = "kemarin" di Asia/Jakarta (dari `data_interval_end`/`logical_date`), `start_date = end_date - 8 hari` → **rolling window 9 hari (H-9 s.d. H-1)** setiap run, supaya data fulfillment yang telat masuk tetap tertangkap.
 
+## Run Mode (Trigger DAG w/ config)
+
+DAG punya satu param `run_mode` (dropdown di form **Trigger DAG w/ config** di Airflow UI):
+
+| `run_mode` | STEP 1 (Data Lake backfill) | STEP 2 (DWH redump) | Kapan dipakai |
+|---|---|---|---|
+| `full` (default) | ✅ | ✅ | Run terjadwal 09:00 selalu pakai ini |
+| `datalake_only` | ✅ | ⛔ tidak disentuh | Mau update status fulfilled + dump detail ke Data Lake tanpa menyentuh DWH |
+| `dwh_only` | ⛔ skip | ✅ | Data Lake sudah bersih/di-clean manual, langsung redump DWH |
+
+- Run terjadwal tidak terpengaruh — params cuma diisi saat trigger manual.
+- `datalake_only` tetap tunduk ke early-exit STEP 1 (token expired, backfill gagal, semua fulfilled, hub sync required). Kalau backfill sukses, dikirim email `[OK] ... Data Lake Only, DWH Not Updated` + kartu Teams hijau "Data Lake updated — DWH not touched".
+- `dwh_only` = `run_all(..., skip_dl_check=True)`. Kartu Teams "ETL completed" menampilkan jumlah tabel DWH yang SUCCESS, bukan statistik backfill.
+
 ## Alur Pipeline
 
 ```
@@ -71,7 +85,12 @@ Setiap pipeline STEP 2 dibungkus try/except sendiri — 1 tabel gagal **tidak** 
 - **MySQL Data Lake** (`config_dw.db_resource`) — source: `transactions_iseller_pusat`, `transactions_items_iseller_pusat`, `outlet_mapping`, `outlet_brand_mapping`, `kbn_transition_outlets`.
 - **MySQL Data Warehouse** (`config_dw.db_target`) — 8 tabel summary + tabel companywide cross-source (`daily_outlet_transaction_summary_new` [MOKA], `_apps_new` [JIWA+], `_arthapos_new` [ARTHAPOS], plus hourly counterpart-nya).
 - **Email (Gmail SMTP)** — `smtp.gmail.com`, pengirim `saputra.christabel20@gmail.com` (kredensial hardcoded di source), penerima `athens.jiwagroup@gmail.com`, `lahia.ardhanlahia@gmail.com`.
-- **MS Teams via Power Automate** — `teams_report_iseller_pusat_unfulfilled.py`, mirroring skenario email (semua fulfilled, hub-sync-required, token expired + tabel unfulfilled, missing token, backfill failed, completed+summary). Best-effort via `post_teams_safe`.
+- **MS Teams via Power Automate** — `teams_report_iseller_pusat_unfulfilled.py`, mirroring skenario email. Warna kartu mengikuti severity:
+  - 🔴 merah (`attention`) — pipeline berhenti karena error: missing token, token expired, backfill failed (judul berisi tipe exception + excerpt log).
+  - 🟡 kuning (`warning`) — hub sync required: total unfulfilled + total amount, tabel per outlet (`Jilid | Nama Outlet | Date | Total Orders Unfulfilled | Total Amount`).
+  - 🟢 hijau (`good`) — semua fulfilled, completed (+ fulfilled/unfulfilled amount), atau datalake_only.
+
+  Best-effort via `post_teams_safe`.
 
 ## Connections / Variables
 

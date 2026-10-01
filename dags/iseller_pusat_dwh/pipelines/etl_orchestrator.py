@@ -33,6 +33,7 @@ from teams_report_iseller_pusat_unfulfilled import (
     post_teams_safe,
     send_teams_pusat_all_fulfilled,
     send_teams_pusat_completed,
+    send_teams_pusat_datalake_only,
     send_teams_pusat_backfill_failed,
     send_teams_pusat_hub_sync_required,
     send_teams_pusat_missing_access_token,
@@ -425,11 +426,68 @@ def _send_report_email(start_date, end_date, backfill_stats, results):
     print(f"\n  Report email sent to: {', '.join(receiver_email)}")
 
 
-def run_all(start_date, end_date, config_dw, skip_dl_check=False, airflow_context=None):
+def _send_datalake_only_email(start_date, end_date, backfill_stats):
+    """Send email after run_mode=datalake_only — backfill done, DWH intentionally untouched."""
+    th = 'style="border:1px solid #ddd;padding:8px 12px;background-color:#4472C4;color:#fff;text-align:left;font-size:13px;"'
+    td = 'style="border:1px solid #ddd;padding:8px 12px;font-size:13px;"'
+    td_r = 'style="border:1px solid #ddd;padding:8px 12px;font-size:13px;text-align:right;"'
+    table = 'style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;margin-bottom:20px;"'
+    bs = backfill_stats or {}
+
+    html = f"""\
+    <html>
+    <body style="font-family:Arial,sans-serif;color:#333;line-height:1.6;">
+        <h2 style="color:#28a745;">ETL iSeller Pusat - Data Lake Only</h2>
+        <p>Periode: <strong>{start_date}</strong> s/d <strong>{end_date}</strong></p>
+
+        <div style="background-color:#d4edda;border:1px solid #c3e6cb;color:#155724;padding:15px;border-radius:5px;margin-bottom:20px;">
+            Backfill fulfillment ke Data Lake selesai.<br>
+            Run ini memakai <code>run_mode=datalake_only</code> — DWH summary <strong>tidak disentuh</strong>.
+        </div>
+
+        <h3 style="color:#333;">Backfill Fulfillment</h3>
+        <table {table}>
+            <tr><th {th}>Metric</th><th {th}>Value</th></tr>
+            <tr><td {td}>Orders Fulfilled</td><td {td_r}>{bs.get('total_fulfilled', 0):,}</td></tr>
+            <tr style="background-color:#f2f2f2;"><td {td}>Fulfilled Amount</td><td {td_r}>Rp {float(bs.get('fulfilled_amount', 0) or 0):,.0f}</td></tr>
+            <tr><td {td}>Orders Still Unfulfilled</td><td {td_r}>{bs.get('total_unfulfilled', 0):,}</td></tr>
+            <tr style="background-color:#f2f2f2;"><td {td}>Unfulfilled Amount</td><td {td_r}>Rp {float(bs.get('unfulfilled_amount', 0) or 0):,.0f}</td></tr>
+            <tr><td {td}>Detail Rows Dumped</td><td {td_r}>{bs.get('total_details_dumped', 0):,}</td></tr>
+        </table>
+
+        <p style="color:#888;font-size:12px;">Best Regards,<br><strong>DatO</strong> ( Data autOmation )</p>
+    </body>
+    </html>"""
+
+    subject = f"[OK] ETL iSeller Pusat - Data Lake Only, DWH Not Updated ({start_date} s/d {end_date})"
+
+    port = 587
+    smtp_server = "smtp.gmail.com"
+    sender_email = "saputra.christabel20@gmail.com"
+    receiver_email = ["athens.jiwagroup@gmail.com", "lahia.ardhanlahia@gmail.com"]
+    password = os.getenv("GMAIL_SMTP_PASSWORD")
+
+    msg = MIMEText(html, 'html')
+    msg['Subject'] = subject
+    msg['From'] = sender_email
+    msg['To'] = ", ".join(receiver_email)
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP(smtp_server, port) as server:
+        server.ehlo()
+        server.starttls(context=context)
+        server.ehlo()
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, msg.as_string())
+
+    print(f"\n  Data-lake-only email sent to: {', '.join(receiver_email)}")
+
+
+def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False, airflow_context=None):
     """
     Full ETL flow:
       1. Backfill fulfillment (Data Lake) — skip jika skip_dl_check=True
-      2. Run 8 DWH summary pipelines in strict order
+      2. Run 8 DWH summary pipelines in strict order — skip jika skip_dwh=True
       3. Send email report
 
     Args:
@@ -437,8 +495,12 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, airflow_contex
         end_date: format YYYY-MM-DD
         config_dw: DB config module
         skip_dl_check: jika True, skip backfill fulfillment (DL sudah di-clean manual)
+        skip_dwh: jika True, berhenti setelah backfill — DWH tidak disentuh
         airflow_context: optional Airflow task context (for Teams metadata)
     """
+    if skip_dl_check and skip_dwh:
+        raise ValueError("skip_dl_check and skip_dwh cannot both be True — nothing would run.")
+
     dag_id, run_id, exec_at = _pusat_teams_meta(airflow_context)
 
     # ---- STEP 1: Backfill Fulfillment ----
@@ -543,6 +605,25 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, airflow_contex
                 executed_at_display=exec_at,
             )
             return {"_stopped": True, "_reason": "no_progress_all_still_unfulfilled"}
+
+    if skip_dwh:
+        print()
+        print("=" * 65)
+        print("  SKIP Step 2 - DWH Summary Pipelines (run_mode=datalake_only)")
+        print("  Data Lake sudah di-update. DWH tidak disentuh.")
+        print("=" * 65)
+        _send_datalake_only_email(start_date, end_date, backfill_stats)
+        post_teams_safe(
+            "datalake only",
+            send_teams_pusat_datalake_only,
+            period_start=start_date,
+            period_end=end_date,
+            backfill_stats=backfill_stats,
+            dag_id=dag_id,
+            run_id=run_id,
+            executed_at_display=exec_at,
+        )
+        return {"_stopped": True, "_reason": "datalake_only", "backfill": backfill_stats}
 
     # ---- STEP 2: DWH Summary Pipelines (strict order) ----
     pipelines = [

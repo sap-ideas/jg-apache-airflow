@@ -5,6 +5,7 @@ then re-dumps all 8 DWH summary tables in strict order.
 Sends email notifications at each stage.
 """
 from airflow import DAG
+from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import pendulum
@@ -45,10 +46,24 @@ def _target_end_date_yesterday_jakarta(**context):
     return jakarta.subtract(days=1).to_date_string()
 
 
+RUN_MODES = ["full", "datalake_only", "dwh_only"]
+
+
 def run_pipeline(**context):
     end_date = _target_end_date_yesterday_jakarta(**context)
     start_date = pendulum.parse(end_date).subtract(days=8).to_date_string()
-    run_all(start_date, end_date, CONFIG_DW, airflow_context=context)
+    run_mode = (context.get("params") or {}).get("run_mode", "full")
+    if run_mode not in RUN_MODES:
+        raise ValueError(f"run_mode must be one of {RUN_MODES}, got {run_mode!r}")
+    print(f"  RUN MODE: {run_mode}")
+    run_all(
+        start_date,
+        end_date,
+        CONFIG_DW,
+        skip_dl_check=(run_mode == "dwh_only"),
+        skip_dwh=(run_mode == "datalake_only"),
+        airflow_context=context,
+    )
 
 default_args = {
     'owner': 'data-team',
@@ -68,6 +83,19 @@ with DAG(
     catchup=False,
     tags=["etl", "iseller", "pusat", "dwh", "production"],
     max_active_runs=1,
+    params={
+        "run_mode": Param(
+            "full",
+            type="string",
+            enum=RUN_MODES,
+            title="Run mode",
+            description=(
+                "full = backfill Data Lake lalu redump DWH (default, dipakai run terjadwal). "
+                "datalake_only = backfill Data Lake saja, DWH tidak disentuh. "
+                "dwh_only = skip pengecekan Data Lake, langsung redump DWH."
+            ),
+        ),
+    },
 ) as dag:
 
     PythonOperator(
