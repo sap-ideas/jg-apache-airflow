@@ -15,6 +15,7 @@ import ssl
 import pandas as pd
 from email.mime.text import MIMEText
 from common.db_helpers import get_connection
+from dedup_details import KNOWN_DETAIL_TYPES
 
 
 def generate_report_outlet_01154(start_date, end_date, config_dw):
@@ -22,7 +23,7 @@ def generate_report_outlet_01154(start_date, end_date, config_dw):
     return _generate_report_01154(start_date, end_date, config_dw)
 
 
-def check_duplicates(start_date, end_date, config_dw):
+def check_duplicates(start_date, end_date, config_dw, send_email=True):
     """
     Check whether headers or details have duplicated business keys in the given date range.
 
@@ -33,12 +34,18 @@ def check_duplicates(start_date, end_date, config_dw):
       - transactions_items_iseller_mitra grouped by composite business key:
         (order_id, order_detail_id, type, bundling_id, product_id, sku,
          status, payment_status, transactions_type)
+      - Key non-combo cnt > 1 = duplikat pasti. Key combo cnt > 1 bisa sah (produk sama dipilih di
+        beberapa slot combo), jadi belum tentu duplikat: harus diputuskan dengan master bundling.
+        Keduanya memicu lanjut ke STEP 2-3; email alert di STEP 1 hanya untuk headers / non-combo.
 
     Returns a dict:
       - has_duplicates: bool
       - total_duplicated_orders: int (backward-compatible header duplicate count)
       - total_duplicated_headers: int (0 when none)
-      - total_duplicated_details: int (0 when none)
+      - total_duplicated_details: int (non-combo duplicated keys, 0 when none)
+      - total_duplicated_details_combo: int (info)
+      - combo_only: bool (hanya key combo yang dobel; keputusan dobel/sah ada di STEP 3)
+      - unknown_detail_types: dict type->jumlah row untuk type di luar KNOWN_DETAIL_TYPES
       - report_df: pandas DataFrame for outlet 01154 (same data as email tables)
     """
     print("=" * 65)
@@ -48,6 +55,22 @@ def check_duplicates(start_date, end_date, config_dw):
 
     conn = get_connection(config_dw, config_dw.db_resource)
     cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT COUNT(*), COUNT(DISTINCT order_id), COUNT(DISTINCT order_id, transaction_id)
+        FROM transactions_iseller_mitra
+        WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
+    """)
+    h_rows, h_orders, h_keys = cursor.fetchone()
+    cursor.execute(f"""
+        SELECT COUNT(*), COUNT(DISTINCT order_id)
+        FROM transactions_items_iseller_mitra
+        WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
+    """)
+    d_rows, d_orders = cursor.fetchone()
+    print("\n  Current rows:")
+    print(f"        Headers : {h_rows:,} rows | {h_orders:,} orders | {h_keys:,} unique (order_id, transaction_id)")
+    print(f"        Details : {d_rows:,} rows | {d_orders:,} orders")
 
     print("\n  Checking headers: transactions_iseller_mitra by (order_id, transaction_id) ...")
     cursor.execute(f"""
@@ -62,66 +85,105 @@ def check_duplicates(start_date, end_date, config_dw):
 
     print("  Checking details: transactions_items_iseller_mitra by composite business key ...")
     cursor.execute(f"""
-        SELECT order_id, order_detail_id, type, bundling_id, product_id, sku,
-               status, payment_status, transactions_type, COUNT(*) as cnt
+        SELECT COALESCE(SUM(type <> 'comboset'), 0), COALESCE(SUM(type = 'comboset'), 0)
+        FROM (
+            SELECT order_id, order_detail_id, type, bundling_id, product_id, sku,
+                   status, payment_status, transactions_type, COUNT(*) as cnt
+            FROM transactions_items_iseller_mitra
+            WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
+            GROUP BY order_id, order_detail_id, type, bundling_id, product_id, sku,
+                     status, payment_status, transactions_type
+            HAVING cnt > 1
+        ) t
+    """)
+    total_duplicated_details, total_duplicated_details_combo = (int(x) for x in cursor.fetchone())
+
+    known = ", ".join(f"'{t}'" for t in KNOWN_DETAIL_TYPES)
+    cursor.execute(f"""
+        SELECT COALESCE(type, '<NULL>'), COUNT(*)
         FROM transactions_items_iseller_mitra
         WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
-        GROUP BY order_id, order_detail_id, type, bundling_id, product_id, sku,
-                 status, payment_status, transactions_type
-        HAVING cnt > 1
+            AND (type IS NULL OR type NOT IN ({known}))
+        GROUP BY 1
     """)
-    detail_duplicates = cursor.fetchall()
-    total_duplicated_details = len(detail_duplicates)
+    unknown_detail_types = {t: int(n) for t, n in cursor.fetchall()}
     conn.close()
 
     print("\n  Duplicate check result:")
-    print(f"        Headers duplicated keys: {total_duplicated_headers:,}")
-    print(f"        Details duplicated keys: {total_duplicated_details:,}")
+    print(f"        Headers duplicated keys        : {total_duplicated_headers:,}")
+    print(f"        Details duplicated keys total  : {total_duplicated_details + total_duplicated_details_combo:,}")
+    print(f"          - non-combo                  : {total_duplicated_details:,}   <- pemicu cleaning")
+    print(f"          - combo                      : {total_duplicated_details_combo:,}   <- pemicu cek master (bisa sah)")
+    if unknown_detail_types:
+        print(f"        TYPE DETAILS TIDAK DIKENAL     : {unknown_detail_types}")
 
-    has_duplicates = total_duplicated_headers > 0 or total_duplicated_details > 0
+    hard_duplicates = total_duplicated_headers > 0 or total_duplicated_details > 0
+    combo_only = not hard_duplicates and total_duplicated_details_combo > 0
+    has_duplicates = hard_duplicates or combo_only
 
     if not has_duplicates:
         print("\n  RESULT: Tidak ada duplicated headers/details.")
         print("  Data mitra AMAN. SKIP re-dump pipelines.")
 
         report_df = _generate_report_01154(start_date, end_date, config_dw)
-        _send_email_clean(start_date, end_date, report_df)
-
-        print("\n  Email notifikasi data aman sudah dikirim.")
+        if send_email:
+            _send_email_clean(start_date, end_date, report_df)
+            print("\n  Email notifikasi data aman sudah dikirim.")
         print("=" * 65)
         return {
             "has_duplicates": False,
             "total_duplicated_orders": 0,
             "total_duplicated_headers": 0,
             "total_duplicated_details": 0,
+            "total_duplicated_details_combo": total_duplicated_details_combo,
+            "combo_only": False,
+            "unknown_detail_types": unknown_detail_types,
             "report_df": report_df,
+        }
+
+    if combo_only:
+        print(
+            "\n  Hanya key combo yang dobel (bisa sah). Keputusan dobel/sah ditentukan master bundling di STEP 2-3."
+        )
+        print("=" * 65)
+        return {
+            "has_duplicates": True,
+            "combo_only": True,
+            "total_duplicated_orders": 0,
+            "total_duplicated_headers": 0,
+            "total_duplicated_details": 0,
+            "total_duplicated_details_combo": total_duplicated_details_combo,
+            "unknown_detail_types": unknown_detail_types,
+            "report_df": _generate_report_01154(start_date, end_date, config_dw),
         }
 
     print(
         "\n  FOUND: duplicated data detected! "
-        f"headers={total_duplicated_headers:,}, details={total_duplicated_details:,}"
+        f"headers={total_duplicated_headers:,}, details non-combo={total_duplicated_details:,}"
     )
 
     # Generate report khusus outlet_code 01154
     report_df = _generate_report_01154(start_date, end_date, config_dw)
 
-    # Send email alert
-    _send_email_alert(
-        start_date,
-        end_date,
-        total_duplicated_headers,
-        total_duplicated_details,
-        report_df,
-    )
-
-    print("\n  Email alert sudah dikirim.")
-    print("  PROCEED ke re-dump pipelines...")
+    if send_email:
+        _send_email_alert(
+            start_date,
+            end_date,
+            total_duplicated_headers,
+            total_duplicated_details,
+            report_df,
+        )
+        print("\n  Email alert sudah dikirim.")
+    print("  PROCEED ke cleaning & re-dump pipelines...")
     print("=" * 65)
     return {
         "has_duplicates": True,
         "total_duplicated_orders": total_duplicated_headers,
         "total_duplicated_headers": total_duplicated_headers,
         "total_duplicated_details": total_duplicated_details,
+        "total_duplicated_details_combo": total_duplicated_details_combo,
+        "combo_only": False,
+        "unknown_detail_types": unknown_detail_types,
         "report_df": report_df,
     }
 
@@ -192,8 +254,8 @@ def _send_email_alert(start_date, end_date, total_duplicated_headers, total_dupl
         <ul>
             <li><strong style="color:#dc3545;">{total_duplicated_headers:,}</strong> duplicated header key(s)
                 <code>(order_id, transaction_id)</code> di table <code>transactions_iseller_mitra</code></li>
-            <li><strong style="color:#dc3545;">{total_duplicated_details:,}</strong> duplicated detail key(s)
-                <code>order_detail_id</code> di table <code>transactions_items_iseller_mitra</code></li>
+            <li><strong style="color:#dc3545;">{total_duplicated_details:,}</strong> duplicated detail key(s) non-combo
+                (composite key) di table <code>transactions_items_iseller_mitra</code></li>
         </ul>
         <p>Periode: <strong>{start_date}</strong> s/d <strong>{end_date}</strong></p>
         <p>Data Lake cleaning dan re-dump DWH summary akan dijalankan secara otomatis (selective: hanya pipeline yang sumber datanya terdampak).</p>
@@ -271,8 +333,8 @@ def _send_email_clean(start_date, end_date, report_df):
     <body style="font-family:Arial,sans-serif;color:#333;line-height:1.6;">
         <h2 style="color:#28a745;">DATA MITRA AMAN - No Duplicates Detected</h2>
         <p>Tidak ditemukan duplikat header <code>(order_id, transaction_id)</code>
-           di <code>transactions_iseller_mitra</code>, dan tidak ditemukan duplikat detail
-           <code>order_detail_id</code> di <code>transactions_items_iseller_mitra</code>.</p>
+           di <code>transactions_iseller_mitra</code>, dan tidak ditemukan duplikat detail non-combo
+           (composite key) di <code>transactions_items_iseller_mitra</code>.</p>
         <p>Periode: <strong>{start_date}</strong> s/d <strong>{end_date}</strong></p>
         <p>Re-dump DWH summary <strong>tidak diperlukan</strong>. Data sudah bersih.</p>
 

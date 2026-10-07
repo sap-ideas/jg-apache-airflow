@@ -199,6 +199,7 @@ di-hardcode langsung di file itu.
 | `_AIRFLOW_WWW_USER_USERNAME` / `_AIRFLOW_WWW_USER_PASSWORD` | Login Web UI — **ganti password default sebelum deploy production** |
 | `AIRFLOW__CORE__FERNET_KEY` | Key enkripsi Variables/Connections — harus sama persis di semua service, jangan diganti setelah production jalan |
 | `access_token_pusat` | API token iSeller Pusat (expired berkala, update manual atau via Airflow Variable) |
+| `access_token_mitra` | API token iSeller Mitra (dipakai DAG `iseller_mitra_dwh` untuk tarik master bundling). Tidak ada / expired → DAG berhenti + alert email & Teams; update via Airflow Variable atau `.env`, lalu clear task |
 | `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` | Webhook Teams untuk notifikasi/alert |
 | `GMAIL_SMTP_PASSWORD` | App password Gmail (`saputra.christabel20@gmail.com`) dipakai hampir semua DAG untuk kirim email report |
 | `DB_LAKE_*`, `DB_WAREHOUSE_*` | Kredensial MySQL Data Lake & Data Warehouse |

@@ -104,7 +104,7 @@ def send_mitra_dwh_teams_report_clean(
                 text_block("All clear — no duplicate rows detected", weight="Bolder"),
                 text_block(
                     "No duplicate header keys (order_id, transaction_id) in transactions_iseller_mitra "
-                    "and no duplicate detail keys (order_detail_id) in transactions_items_iseller_mitra "
+                    "and no duplicate non-combo detail keys (composite key) in transactions_items_iseller_mitra "
                     "for this period. DWH summary re-dump is not required — data is already clean.",
                     is_subtle=True,
                     spacing="Small",
@@ -143,6 +143,7 @@ def send_mitra_dwh_teams_report_duplicate_flow(
     executed_at_display: str,
     clean_stats: dict[str, int] | None = None,
     webhook_url: str | None = None,
+    datalake_only: bool = False,
 ) -> None:
     """
     Duplicates were present: red banner, table before cleaning, then table after DL clean + DWH re-dump.
@@ -166,12 +167,15 @@ def send_mitra_dwh_teams_report_duplicate_flow(
                 text_block("Alert — duplicate data detected", weight="Bolder"),
                 text_block(
                     f"{total_duplicated_orders:,} duplicate header key(s) (order_id, transaction_id) "
-                    f"and {total_duplicated_details:,} duplicate detail key(s) (order_detail_id) "
+                    f"and {total_duplicated_details:,} duplicate non-combo detail key(s) (composite key) "
                     "found in Data Lake for this period.",
                     spacing="Small",
                 ),
                 text_block(
-                    "The five DWH summary tables are being reloaded automatically after duplicate removal.",
+                    "Run mode datalake_only: Data Lake cleaned, DWH summary tables intentionally NOT reloaded "
+                    "(run dwh_only to rebuild them)."
+                    if datalake_only
+                    else "The five DWH summary tables are being reloaded automatically after duplicate removal.",
                     is_subtle=True,
                     spacing="Small",
                 ),
@@ -207,7 +211,7 @@ def send_mitra_dwh_teams_report_duplicate_flow(
     body.extend(
         _outlet_01154_table_blocks(
             report_after,
-            "Outlet 01154 — after cleaning & DWH re-dump",
+            "Outlet 01154 — after Data Lake cleaning" if datalake_only else "Outlet 01154 — after cleaning & DWH re-dump",
         )
     )
 
@@ -221,6 +225,65 @@ def send_mitra_dwh_teams_report_duplicate_flow(
     )
     body.append(text_block("", spacing="Medium"))
     body.append(_meta_facts(dag_id, run_id, executed_at_display))
+
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": ADAPTIVE_CARD_SCHEMA,
+        "version": ADAPTIVE_CARD_VERSION,
+        "body": body,
+    }
+    post_to_power_automate(url, build_power_automate_payload(card))
+
+
+def send_mitra_dwh_teams_report_master_error(
+    *,
+    title: str,
+    message: str,
+    action: str,
+    reason: str,
+    total_duplicated_headers: int,
+    total_duplicated_details: int,
+    period_start: str,
+    period_end: str,
+    dag_id: str,
+    run_id: str,
+    executed_at_display: str,
+    webhook_url: str | None = None,
+) -> None:
+    """Pipeline STOP: master bundling (API iSeller Mitra) gagal di-load. DL & DWH tidak disentuh."""
+    url = webhook_url or _get_webhook_url()
+    if not url:
+        logger.warning("Teams Mitra: no webhook URL; skip.")
+        return
+
+    period = period_start if period_start == period_end else f"{period_start} – {period_end}"
+    body: list[dict[str, Any]] = [
+        text_block("Mitra Sales - Duplicate Data Check", weight="Bolder", size="Large"),
+        text_block(f"Period: {period}", is_subtle=True, spacing="None"),
+        {
+            "type": "Container",
+            "style": "attention",
+            "bleed": True,
+            "spacing": "Medium",
+            "items": [
+                text_block(f"STOPPED — {title}", weight="Bolder"),
+                text_block(message, spacing="Small"),
+                text_block(
+                    f"Duplikat terdeteksi ({total_duplicated_headers:,} header key, "
+                    f"{total_duplicated_details:,} detail key non-combo) tapi cleaning TIDAK dijalankan: "
+                    "Data Lake & DWH tidak disentuh.",
+                    spacing="Small",
+                ),
+                text_block(action, is_subtle=True, spacing="Small"),
+            ],
+        },
+        text_block("", spacing="Medium"),
+        {
+            "type": "FactSet",
+            "facts": [{"title": "Reason", "value": reason}],
+        },
+        _meta_facts(dag_id, run_id, executed_at_display),
+    ]
 
     card = {
         "type": "AdaptiveCard",

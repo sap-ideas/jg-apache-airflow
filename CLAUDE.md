@@ -89,10 +89,10 @@ Lihat `plugins/common/pipeline_loader.py` untuk penjelasan lengkap.
   Teams (Power Automate) **opsional dan selalu best-effort** — bungkus try/except,
   kegagalan kirim Teams hanya `logging.warning`, tidak boleh menggagalkan DAG.
   Detail lengkap: [bagian 4](#4-notifikasi-teams--power-automate).
-- **Airflow Variables dipakai seminimal mungkin**, hanya 2 yang legit saat ini:
-  `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` dan `access_token_pusat` (keduanya fallback ke
-  environment variable). Jangan buat Variable baru untuk hal yang cukup lewat
-  `.env`.
+- **Airflow Variables dipakai seminimal mungkin**, hanya 3 yang legit saat ini:
+  `POWER_AUTOMATE_TEAMS_WEBHOOK_URL`, `access_token_pusat`, dan `access_token_mitra`
+  (semuanya fallback ke environment variable). Jangan buat Variable baru untuk hal
+  yang cukup lewat `.env`.
 - **Gaya logging**: kode pipeline (`extract.py` / `transform.py` / `load.py` /
   `etl_orchestrator.py`) memakai `print()` dengan banner ASCII (`"="*65`,
   `"[n/N] nama_step"`) — bukan modul `logging`. `logging.getLogger(__name__)` hanya
