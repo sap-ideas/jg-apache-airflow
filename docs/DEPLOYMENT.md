@@ -188,7 +188,7 @@ ruang cukup, dan jangan hapus `logs/` manual saat container jalan.
 
 - **Metadata Airflow** ada di Docker volume `postgres-db-volume` (bukan file di repo) —
   ini yang menyimpan DAG run history, Connections, Variables (termasuk
-  `access_token_pusat` dan webhook Teams kalau disimpan sebagai Airflow Variable, bukan
+  `access_token_pusat`, `access_token_mitra`, dan webhook Teams kalau disimpan sebagai Airflow Variable, bukan
   cuma `.env`). Backup dengan `docker-compose exec postgres pg_dump -U airflow airflow > backup.sql`,
   atau backup volume-nya langsung.
 - **`.env`** — backup terpisah di password manager/vault, BUKAN di dalam repo/volume
