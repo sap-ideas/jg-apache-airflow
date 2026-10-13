@@ -54,10 +54,7 @@ def run_daily_items_sales_type(start_date, end_date, config_dw):
             CAST(WEEK(transactions.transaction_date, 7) AS CHAR) AS week,
             CAST(MONTH(transactions.transaction_date) AS CHAR) AS month,
             CAST(YEAR(transactions.transaction_date) AS CHAR) AS year,
-            CASE 
-                WHEN outlet_mapping.jilid IS NOT NULL THEN outlet_mapping.jilid 
-                ELSE '-'
-            END as jilid,
+            transactions.outlet_code AS jilid,
             sales_type AS sales_type_name,
             transactions.transactions_payment_type_name AS payment_type,
             CASE 
