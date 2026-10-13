@@ -332,17 +332,35 @@ def send_teams_pusat_completed(
         ]
         detail_blocks = []
 
+    failed = {name: r for name, r in results.items() if r.get("status") != "SUCCESS"}
+    if failed:
+        title = f"ETL finished with errors — {len(failed)}/{len(results)} DWH tables FAILED"
+        status_lines.append(text_block(
+            "The task is marked failed. Fix the cause, then re-run the DAG with run_mode=dwh_only.",
+            weight="Bolder", spacing="Small",
+        ))
+        failed_blocks = section_column_table(
+            section_title="Failed DWH tables",
+            column_headers=["Table", "Error"],
+            column_horizontal_alignments=["Left", "Left"],
+            rows=[[name, (str(r.get("error") or "")).strip()[:300] or "(no message)"] for name, r in failed.items()],
+            empty_message="—",
+        )
+    else:
+        title, failed_blocks = "ETL completed", []
+
     body: list[dict[str, Any]] = [
         text_block(CARD_TITLE, weight="Bolder", size="Large"),
         text_block(f"Period: {_period_line(period_start, period_end)}", is_subtle=True, spacing="None"),
         {
             "type": "Container",
-            "style": "good",
+            "style": "attention" if failed else "good",
             "bleed": True,
             "spacing": "Medium",
-            "items": [text_block("ETL completed", weight="Bolder"), *status_lines],
+            "items": [text_block(title, weight="Bolder"), *status_lines],
         },
     ]
+    body.extend(failed_blocks)
     body.extend(detail_blocks)
     body.append(text_block("", spacing="Medium"))
     body.append(_meta_facts(dag_id, run_id, executed_at_display))

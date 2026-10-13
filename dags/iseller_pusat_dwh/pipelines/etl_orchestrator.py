@@ -55,6 +55,23 @@ from pipeline_daily_companywide import run_daily_companywide
 from pipeline_hourly_companywide import run_hourly_companywide
 
 
+def _send_email_safe(label, fn, *args):
+    """Email gagal (SMTP error) tidak boleh menggagalkan task: retry akan menjalankan ulang seluruh pipeline."""
+    try:
+        fn(*args)
+    except Exception as e:
+        print(f"  WARNING: email ({label}) gagal dikirim: {type(e).__name__}: {e}")
+
+
+def _fail_without_retry(message):
+    """AirflowFailException (tanpa retry) kalau jalan di Airflow, selain itu RuntimeError."""
+    try:
+        from airflow.exceptions import AirflowFailException  # type: ignore
+        return AirflowFailException(message)
+    except ImportError:
+        return RuntimeError(message)
+
+
 def _pusat_teams_meta(airflow_context):
     now_wib = pendulum.now("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss") + " WIB"
     if not airflow_context:
@@ -402,7 +419,12 @@ def _send_report_email(start_date, end_date, backfill_stats, results):
     </body>
     </html>"""
 
-    subject = f"[REPORT] ETL iSeller Pusat - Completed ({start_date} s/d {end_date})"
+    n_failed = sum(1 for r in results.values() if r["status"] != "SUCCESS")
+    if n_failed:
+        subject = (f"[FAILED PIPELINE] ETL iSeller Pusat - {n_failed}/{len(results)} DWH tables FAILED "
+                   f"({start_date} s/d {end_date})")
+    else:
+        subject = f"[REPORT] ETL iSeller Pusat - Completed ({start_date} s/d {end_date})"
 
     port = 587
     smtp_server = "smtp.gmail.com"
@@ -483,7 +505,7 @@ def _send_datalake_only_email(start_date, end_date, backfill_stats):
     print(f"\n  Data-lake-only email sent to: {', '.join(receiver_email)}")
 
 
-def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False, airflow_context=None):
+def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False, dry_run=False, airflow_context=None):
     """
     Full ETL flow:
       1. Backfill fulfillment (Data Lake) — skip jika skip_dl_check=True
@@ -496,10 +518,24 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
         config_dw: DB config module
         skip_dl_check: jika True, skip backfill fulfillment (DL sudah di-clean manual)
         skip_dwh: jika True, berhenti setelah backfill — DWH tidak disentuh
+        dry_run: jika True, jalankan backfill tanpa menulis Data Lake, tanpa email/Teams, tanpa DWH.
+                 Return {'_stopped': True, '_reason': 'dry_run', 'backfill': stats}; DataFrame hasil
+                 (df_headers, df_details, ...) ada di stats['frames'].
         airflow_context: optional Airflow task context (for Teams metadata)
     """
     if skip_dl_check and skip_dwh:
         raise ValueError("skip_dl_check and skip_dwh cannot both be True — nothing would run.")
+    if dry_run and skip_dl_check:
+        raise ValueError("dry_run hanya untuk STEP 1 (backfill); tidak bisa digabung dengan skip_dl_check.")
+
+    if dry_run:
+        stats = run_backfill_fulfillment(config_dw, start_date, end_date, dry_run=True)
+        print()
+        print("=" * 65)
+        print("  DRY RUN selesai: Data Lake & DWH tidak ditulis, email & Teams tidak dikirim.")
+        print("  DataFrame hasil ada di result['backfill']['frames'].")
+        print("=" * 65)
+        return {"_stopped": True, "_reason": "dry_run", "backfill": stats}
 
     dag_id, run_id, exec_at = _pusat_teams_meta(airflow_context)
 
@@ -516,7 +552,7 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
         except MissingAccessTokenError as e:
             print(f"\n  access_token_pusat NOT SET — pipeline dihentikan.")
             print(f"  {e}")
-            _send_missing_access_token_email(start_date, end_date)
+            _send_email_safe("missing access token", _send_missing_access_token_email, start_date, end_date)
             post_teams_safe(
                 "missing access token",
                 send_teams_pusat_missing_access_token,
@@ -526,11 +562,11 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
                 run_id=run_id,
                 executed_at_display=exec_at,
             )
-            return {"_stopped": True, "_reason": "missing_access_token", "_error": str(e)}
+            raise _fail_without_retry(f"Pipeline dihentikan: access_token_pusat tidak ada. {e}")
         except TokenExpiredError as e:
             print(f"\n  API TOKEN EXPIRED — pipeline dihentikan.")
             print(f"  {e}")
-            _send_token_expired_email(start_date, end_date, e.df_unfulfilled)
+            _send_email_safe("token expired", _send_token_expired_email, start_date, end_date, e.df_unfulfilled)
             post_teams_safe(
                 "token expired",
                 send_teams_pusat_token_expired,
@@ -541,9 +577,10 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
                 run_id=run_id,
                 executed_at_display=exec_at,
             )
-            return {"_stopped": True, "_reason": "token_expired", "_error": str(e)}
+            raise _fail_without_retry(f"Pipeline dihentikan: access_token_pusat expired. {e}")
         except Exception as e:
             print(f"\n  BACKFILL FAILED: {e}")
+            backfill_exc = e
             backfill_stats = {
                 'error': str(e),
                 'error_type': type(e).__name__,
@@ -553,7 +590,7 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
         if backfill_stats and backfill_stats.get('error'):
             err = backfill_stats['error']
             print("\n  Backfill error — pipeline dihentikan. DWH tidak di-update.")
-            _send_backfill_failed_email(start_date, end_date, err)
+            _send_email_safe("backfill failed", _send_backfill_failed_email, start_date, end_date, err)
             post_teams_safe(
                 "backfill failed",
                 send_teams_pusat_backfill_failed,
@@ -565,12 +602,13 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
                 run_id=run_id,
                 executed_at_display=exec_at,
             )
-            return {"_stopped": True, "_reason": "backfill_failed", "_error": str(err)}
+            # Backfill idempoten (guard + transaksi atomik), jadi retry Airflow aman.
+            raise backfill_exc
 
         if backfill_stats and 'error' not in backfill_stats and backfill_stats.get('no_unfulfilled_found'):
             print("\n  No unfulfilled orders found — Data Lake is clean.")
             print("  Skipping DWH re-dump. Pipeline selesai.")
-            _send_all_fulfilled_email(start_date, end_date)
+            _send_email_safe("all fulfilled", _send_all_fulfilled_email, start_date, end_date)
             post_teams_safe(
                 "all fulfilled",
                 send_teams_pusat_all_fulfilled,
@@ -589,8 +627,9 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
         ):
             print("\n  Tidak ada order yang menjadi fulfilled setelah tarikan API.")
             print("  Pipeline dihentikan — Hub Manager sync diperlukan. DWH tidak di-update.")
-            _send_hub_sync_required_email(
-                start_date, end_date, backfill_stats['total_unfulfilled']
+            _send_email_safe(
+                "hub sync required", _send_hub_sync_required_email,
+                start_date, end_date, backfill_stats['total_unfulfilled'],
             )
             post_teams_safe(
                 "hub sync required",
@@ -612,7 +651,7 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
         print("  SKIP Step 2 - DWH Summary Pipelines (run_mode=datalake_only)")
         print("  Data Lake sudah di-update. DWH tidak disentuh.")
         print("=" * 65)
-        _send_datalake_only_email(start_date, end_date, backfill_stats)
+        _send_email_safe("datalake only", _send_datalake_only_email, start_date, end_date, backfill_stats)
         post_teams_safe(
             "datalake only",
             send_teams_pusat_datalake_only,
@@ -690,7 +729,7 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
     print("=" * 65)
 
     # ---- STEP 3: Send email report ----
-    _send_report_email(start_date, end_date, backfill_stats, results)
+    _send_email_safe("report", _send_report_email, start_date, end_date, backfill_stats, results)
     post_teams_safe(
         "completed",
         send_teams_pusat_completed,
@@ -702,5 +741,13 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, skip_dwh=False
         run_id=run_id,
         executed_at_display=exec_at,
     )
+
+    failed_tables = [name for name, r in results.items() if r["status"] != "SUCCESS"]
+    if failed_tables:
+        # Tanpa retry: retry akan melihat DL sudah bersih (all fulfilled) dan melewati redump DWH.
+        raise _fail_without_retry(
+            f"{len(failed_tables)}/{len(results)} tabel DWH FAILED: {', '.join(failed_tables)}. "
+            "Perbaiki penyebabnya, lalu trigger ulang DAG dengan run_mode=dwh_only."
+        )
 
     return results

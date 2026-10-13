@@ -170,7 +170,7 @@ def run_daily_bundlings(start_date, end_date, config_dw):
     df_final['month'] = df_final['month'].astype(int)
     df_final['year'] = df_final['year'].astype(int)
     df_final['sources'] = 'iseller_pusat'
-
+    
     # DELETE — dilakukan setelah df_final siap di memory
     conn = get_connection(config_dw, config_dw.db_target)
     cursor = conn.cursor()

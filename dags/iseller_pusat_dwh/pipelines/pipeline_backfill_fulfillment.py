@@ -20,7 +20,7 @@ import requests
 import pandas as pd
 import numpy as np
 from pytz import timezone
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, text
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from common.db_helpers import get_connection, get_engine_datalake
@@ -38,53 +38,139 @@ class TokenExpiredError(Exception):
 
 PUSAT_OUTLET_CODES = ('01150', '07001', '07003', '07004', '07005', '07006', '07007', '07008', '07009', '07010')
 
-PRODUCT_ID_SJW_SJO_HEADERS = {
-    '1d2664fc-f2c4-4d63-93b0-0150c5bad9ca', '514f7f40-fcf1-4b24-a881-0e32a6e2da88',
-    'b7a5bd88-cda9-4623-814a-734767026910', '134f7a5b-09a2-455c-8f70-93a01468131e',
-    'b26ce832-29a4-46f7-be9f-e9f4d72c1dca', '64b0cc8b-88e4-498a-b5b5-ff093b5915e5',
-    '2306edf4-9f70-4c79-88d9-2a836a292816', '9eef163d-fd2f-4e52-98e6-4593679a16b5',
-    '9ea8be5c-8bc1-4f14-b564-5eb75a19d907', 'a96b7a4e-b86d-4171-956b-77a09d1c54f9',
-    '6b07599f-14f8-44f9-ab5b-4389bf7e82d1', '328e5672-48a1-4683-b65d-c4a45f344ca1',
-    'baa1d6c2-7b48-40af-a6f3-b9e481f93e61', '3ab4aa05-f664-4eaf-ad7e-bdf643d421d4',
-    '2fcb7dad-bd59-44c9-a846-1279f9840d37', 'c038d0fa-a12a-4644-9bbb-3878b3064912',
-    '4521dc51-b3d6-4493-814a-617fde292c04', '62701d95-4d24-449e-b0db-ea8994d00b62',
-    '8f5fe78b-7d7c-46ed-9f5b-c9f8d195b60d', '44d2e817-8745-4cbf-aa36-d4abfc75aebf',
-    'a26111f7-3aa5-48b0-a77b-2f952aab5eae', '74ee1eae-21b8-467a-828c-b59cf780d065',
-    'a89893bf-9026-4a5c-9f0c-949c0f4539d7', '150c96b0-fe81-4835-b3cc-593bfb6c45db',
-    '999251a7-5e8b-4267-b67c-b33cedead904', '0c8a73fe-ae1b-4287-a6af-7d48fce86de5',
-    'c9d038f6-fea1-494f-813c-ad0aed0dde1e', 'a94730e0-4f5b-4af9-b70b-68dbea299b78',
-    '5842673c-8a8b-423b-9804-1c0d484c60ac', 'bae1b783-e862-4c5f-bb46-b20bb7e02b63',
-    '00295e2b-66bb-489f-9615-6e25676c8331', 'd8a7f659-c1dd-448a-9110-688fd1105bf8',
-    '47855957-b056-49bc-8be3-c8ea68e0160b', '5864c6dc-216e-4764-9c8b-71bc9d77c41a',
-    '3ffe31ac-f4c6-4206-959f-26f2ec6224fc', '64b5deb0-fcef-412f-bd2e-714a9b65a6b9',
+API_TIMEOUT_SEC = 60
+API_MAX_RETRIES = 3
+API_RETRY_BACKOFF_SEC = 2
+REFETCH_EMPTY_MAX_WORKERS = 5
+GET_PRODUCTS_PAGE_SIZE = 500
+# Batas pengaman loop (200 x 500 produk), bukan batas data: paging berhenti di page kosong.
+GET_PRODUCTS_MAX_PAGES = 200
+DETAILS_TABLE = 'transactions_items_iseller_pusat'
+DB_BATCH_SIZE = 1000
+# Dedup key details iSeller (sama dengan iseller_mitra_dwh/pipelines/dedup_details.py). Row sale/refund beda transactions_type.
+DETAIL_KEY = ['order_id', 'order_detail_id', 'type', 'bundling_id', 'product_id', 'sku',
+              'status', 'payment_status', 'transactions_type']
+RECONCILE_TOLERANCE = 0.01
+
+FINAL_DETAIL_COLUMNS = [
+    'order_id', 'order_detail_id', 'type', 'bundling_id', 'product_id', 'sku',
+    'product_name', 'product_generic_name', 'base_price', 'quantity', 'total_order_amount', 'promotion_name',
+    'promotion_amount', 'discount_amount', 'subtotal', 'product_variant_id', 'product_variant_name',
+    'product_modifier_id', 'product_modifier_name', 'notes', 'taxable', 'tax_percentage', 'tax_amount',
+    'additional_charge', 'total_amount', 'product_type', 'discount_name', 'discount_percentage',
+    'promotion_id', 'promotion_type', 'transaction_date', 'order_reference', 'outlet_id', 'outlet_code',
+    'outlet_name', 'channel', 'channel_detail', 'order_date', 'closed_date', 'status', 'payment_status',
+    'transactions_type', 'transactions_status', 'sales_type', 'transactions_payment_type_name', 'customer_id',
+    'customer_first_name', 'customer_last_name', 'customer_phone_number', 'customer_email', 'cashier_id',
+    'fulfillment_status', 'load_data_at',
+]
+
+# Label sales_type 'Sejuta Jiwa': order berisi minimal 1 produk di list ini (sumber: notebook ingest v2).
+# BEDA dengan PRODUCT_ID_TAX_11: list pajak juga memuat packaging fee / merchandise yang bukan produk SJW.
+PRODUCT_ID_SJW_LABEL = {
+    '1d2664fc-f2c4-4d63-93b0-0150c5bad9ca',
+    '514f7f40-fcf1-4b24-a881-0e32a6e2da88',
+    'b7a5bd88-cda9-4623-814a-734767026910',
+    '134f7a5b-09a2-455c-8f70-93a01468131e',
+    'b26ce832-29a4-46f7-be9f-e9f4d72c1dca',
+    '64b0cc8b-88e4-498a-b5b5-ff093b5915e5',
+    '2306edf4-9f70-4c79-88d9-2a836a292816',  # added at 2024-03-13
+    '9eef163d-fd2f-4e52-98e6-4593679a16b5',  # added at 2024-04-01 semua SJO
+    '9ea8be5c-8bc1-4f14-b564-5eb75a19d907',
+    'a96b7a4e-b86d-4171-956b-77a09d1c54f9',
+    '6b07599f-14f8-44f9-ab5b-4389bf7e82d1',
+    '328e5672-48a1-4683-b65d-c4a45f344ca1',  # added at 2024-04-02
+    'baa1d6c2-7b48-40af-a6f3-b9e481f93e61',
+    '3ab4aa05-f664-4eaf-ad7e-bdf643d421d4',
+    '2fcb7dad-bd59-44c9-a846-1279f9840d37',
+    'c038d0fa-a12a-4644-9bbb-3878b3064912',
+    '4521dc51-b3d6-4493-814a-617fde292c04',  # added at 2024-05-14
+    '62701d95-4d24-449e-b0db-ea8994d00b62',  # added at 2024-07-08
+    '8f5fe78b-7d7c-46ed-9f5b-c9f8d195b60d',  # added at 2024-08-04
+    '44d2e817-8745-4cbf-aa36-d4abfc75aebf',
+    'a26111f7-3aa5-48b0-a77b-2f952aab5eae',
+    '74ee1eae-21b8-467a-828c-b59cf780d065',  # added at 2024-08-16
+    'a89893bf-9026-4a5c-9f0c-949c0f4539d7',
+    '150c96b0-fe81-4835-b3cc-593bfb6c45db',  # added at 2024-09-14
+    '999251a7-5e8b-4267-b67c-b33cedead904',  # added at 2024-10-03
+    '0c8a73fe-ae1b-4287-a6af-7d48fce86de5',
+    'c9d038f6-fea1-494f-813c-ad0aed0dde1e',  # added at 2024-10-23
+    'a94730e0-4f5b-4af9-b70b-68dbea299b78',
+    '5842673c-8a8b-423b-9804-1c0d484c60ac',  # added at 2024-11-18
+    'bae1b783-e862-4c5f-bb46-b20bb7e02b63',
+    '00295e2b-66bb-489f-9615-6e25676c8331',
+    'd8a7f659-c1dd-448a-9110-688fd1105bf8',
+    '47855957-b056-49bc-8be3-c8ea68e0160b',
+    '5864c6dc-216e-4764-9c8b-71bc9d77c41a',  # added at 2025-02-26
+    '3ffe31ac-f4c6-4206-959f-26f2ec6224fc',
+    '64b5deb0-fcef-412f-bd2e-714a9b65a6b9',  # added at 2025-06-23
+    '7ddc0da7-72bf-4518-ac37-c1c62e48d418',  # added at 2026-08-20 (Basreng Pedas Daun Jeruk, ITM010872)
+    '7fed141a-8b22-4cee-80c0-df4242e136ec',  # added at 2026-10-09 (Es Kopi Susu Honey, FCH040025)
+    '5faac2db-7827-4414-a5ac-1345a79299dd',  # added at 2026-10-09 (Matcha, FCH040036)
 }
 
-PRODUCT_ID_SJW_SJO_DETAILS = {
-    '1d2664fc-f2c4-4d63-93b0-0150c5bad9ca', '514f7f40-fcf1-4b24-a881-0e32a6e2da88',
-    'b7a5bd88-cda9-4623-814a-734767026910', '134f7a5b-09a2-455c-8f70-93a01468131e',
-    'b26ce832-29a4-46f7-be9f-e9f4d72c1dca', '64b0cc8b-88e4-498a-b5b5-ff093b5915e5',
-    '2306edf4-9f70-4c79-88d9-2a836a292816', '328e5672-48a1-4683-b65d-c4a45f344ca1',
-    'baa1d6c2-7b48-40af-a6f3-b9e481f93e61', '3ab4aa05-f664-4eaf-ad7e-bdf643d421d4',
-    '2fcb7dad-bd59-44c9-a846-1279f9840d37', 'c038d0fa-a12a-4644-9bbb-3878b3064912',
-    '4521dc51-b3d6-4493-814a-617fde292c04', '11669a10-4cfa-4cdf-89d8-ee21303011b4',
-    'd12c672d-f9ec-4bce-a05f-1ba9f33b78fd', 'fa9f3400-d5b2-4f90-bed9-62b3d7729634',
-    '62701d95-4d24-449e-b0db-ea8994d00b62', '8f5fe78b-7d7c-46ed-9f5b-c9f8d195b60d',
-    '44d2e817-8745-4cbf-aa36-d4abfc75aebf', 'a26111f7-3aa5-48b0-a77b-2f952aab5eae',
-    '74ee1eae-21b8-467a-828c-b59cf780d065', '150c96b0-fe81-4835-b3cc-593bfb6c45db',
-    '999251a7-5e8b-4267-b67c-b33cedead904', 'c9d038f6-fea1-494f-813c-ad0aed0dde1e',
-    'a94730e0-4f5b-4af9-b70b-68dbea299b78', '5842673c-8a8b-423b-9804-1c0d484c60ac',
-    'bae1b783-e862-4c5f-bb46-b20bb7e02b63', '00295e2b-66bb-489f-9615-6e25676c8331',
-    'd8a7f659-c1dd-448a-9110-688fd1105bf8', '47855957-b056-49bc-8be3-c8ea68e0160b',
-    '12b0ffba-e456-4faf-a4ce-4f58dff0b3c4', 'c05dba29-ccd5-4fc3-90a1-4d616d7852d9',
-    '05637d36-2b3e-429b-a7b0-3896eec94f3e', '7c56f36e-2595-4ab2-a322-655ee731baf0',
-    'c457003b-c93f-4e82-a54b-177db2f3589b', '5864c6dc-216e-4764-9c8b-71bc9d77c41a',
-    '75de7ef4-5119-4784-97b8-8d17e1fd5069', '835bcdf5-4555-4ff1-a18d-8ed6be7fe0ff',
-    'b40cc79c-48d0-493a-a1bc-4139f184a0df', '7fc6fcf2-6845-4c7e-ae0d-3a07031e8c31',
-    '88c16c67-7e2e-454a-a81b-63d548f37318', '1d0d46e1-1e3b-4eec-a888-16c856e00f6a',
-    'aae367a0-edfe-4363-a43e-59911694539d', 'cdfdc515-39cc-4438-948d-8090f62eecab',
-    '9caea397-4a5f-4a1e-a5b2-b62e7a8d3436', '6455a9cc-91f5-4d66-b8f5-ed2a0dbf8faa',
-    'e3e79651-221b-4e25-855e-3493a0ae35aa', '64b5deb0-fcef-412f-bd2e-714a9b65a6b9',
-}
+# Produk dengan pajak 11% (produk lain 10%). TIDAK DIPAKAI LAGI sejak 2026-10-13: tarif pajak sekarang
+# diambil dari `tax_percentage` API per order_detail (lihat _process_api_data). Disimpan untuk referensi.
+# PRODUCT_ID_TAX_11 = {
+#     '1d2664fc-f2c4-4d63-93b0-0150c5bad9ca',
+#     '514f7f40-fcf1-4b24-a881-0e32a6e2da88',
+#     'b7a5bd88-cda9-4623-814a-734767026910',
+#     '134f7a5b-09a2-455c-8f70-93a01468131e',
+#     'b26ce832-29a4-46f7-be9f-e9f4d72c1dca',
+#     '64b0cc8b-88e4-498a-b5b5-ff093b5915e5',
+#     '2306edf4-9f70-4c79-88d9-2a836a292816',  # added at 2024-03-13
+#     '328e5672-48a1-4683-b65d-c4a45f344ca1',  # added at 2024-04-02
+#     'baa1d6c2-7b48-40af-a6f3-b9e481f93e61',
+#     '3ab4aa05-f664-4eaf-ad7e-bdf643d421d4',
+#     '2fcb7dad-bd59-44c9-a846-1279f9840d37',
+#     'c038d0fa-a12a-4644-9bbb-3878b3064912',
+#     '4521dc51-b3d6-4493-814a-617fde292c04',  # added at 2024-05-14
+#     '11669a10-4cfa-4cdf-89d8-ee21303011b4',
+#     'd12c672d-f9ec-4bce-a05f-1ba9f33b78fd',
+#     'fa9f3400-d5b2-4f90-bed9-62b3d7729634',
+#     '62701d95-4d24-449e-b0db-ea8994d00b62',  # added at 2024-07-08
+#     '8f5fe78b-7d7c-46ed-9f5b-c9f8d195b60d',  # added at 2024-08-04
+#     '44d2e817-8745-4cbf-aa36-d4abfc75aebf',
+#     'a26111f7-3aa5-48b0-a77b-2f952aab5eae',
+#     '74ee1eae-21b8-467a-828c-b59cf780d065',  # added at 2024-08-16
+#     '150c96b0-fe81-4835-b3cc-593bfb6c45db',  # added at 2024-09-14
+#     '999251a7-5e8b-4267-b67c-b33cedead904',  # added at 2024-10-03
+#     'c9d038f6-fea1-494f-813c-ad0aed0dde1e',  # added at 2024-10-23
+#     'a94730e0-4f5b-4af9-b70b-68dbea299b78',
+#     '5842673c-8a8b-423b-9804-1c0d484c60ac',  # added at 2024-11-18
+#     'bae1b783-e862-4c5f-bb46-b20bb7e02b63',
+#     'd8a7f659-c1dd-448a-9110-688fd1105bf8',
+#     '12b0ffba-e456-4faf-a4ce-4f58dff0b3c4',
+#     'c05dba29-ccd5-4fc3-90a1-4d616d7852d9',
+#     '5864c6dc-216e-4764-9c8b-71bc9d77c41a',  # added at 2025-02-26
+#     '75de7ef4-5119-4784-97b8-8d17e1fd5069',  # added at 2025-03-05
+#     '835bcdf5-4555-4ff1-a18d-8ed6be7fe0ff',
+#     'b40cc79c-48d0-493a-a1bc-4139f184a0df',
+#     '7fc6fcf2-6845-4c7e-ae0d-3a07031e8c31',
+#     '88c16c67-7e2e-454a-a81b-63d548f37318',
+#     '1d0d46e1-1e3b-4eec-a888-16c856e00f6a',  # added at 2025-03-07
+#     'aae367a0-edfe-4363-a43e-59911694539d',
+#     'cdfdc515-39cc-4438-948d-8090f62eecab',
+#     '9caea397-4a5f-4a1e-a5b2-b62e7a8d3436',
+#     '6455a9cc-91f5-4d66-b8f5-ed2a0dbf8faa',  # added at 2025-04-10
+#     'e3e79651-221b-4e25-855e-3493a0ae35aa',
+#     '64b5deb0-fcef-412f-bd2e-714a9b65a6b9',  # added at 2025-06-23
+#     '10afe61c-ac64-452c-88da-860a4d1e9709',  # added at 2025-11-05
+#     '21e4074e-9242-4b16-b7bb-f1a860166ef6',
+#     'b5524b91-8741-408c-9fce-f8ff99e9628b',
+#     'c2a65491-d800-4b32-bd57-fbd6dad58487',
+#     'e845f4f6-5706-4e27-8b0c-920bbdfbf48e',
+#     'eb1e9245-6ca8-4557-9300-ca5e3c8b549d',
+#     '7fed141a-8b22-4cee-80c0-df4242e136ec',  # added at 2026-08-20
+#     '7ddc0da7-72bf-4518-ac37-c1c62e48d418',  # added at 2026-08-20
+#     '76ff8b4e-e030-4b9c-9bcb-63cd9ef85f89',  # added at 2026-08-20
+#     '78f28d6d-2434-4b04-8dec-eef51849ba88',  # added at 2026-08-20
+#     'fb2c43e3-e3f8-4d95-b427-cb3cc86f3c02',  # added at 2026-08-20
+#     '80e5ae41-3d5f-4ea0-a59e-f230b4915459',  # added at 2026-08-20
+#     'ac80b95b-5690-4c5d-bae8-538dbd24b0ef',  # added at 2026-08-20
+#     '8decfa25-03f9-4a88-8fb2-cc30660c7af7',  # added at 2026-08-20
+#     '5faac2db-7827-4414-a5ac-1345a79299dd',  # added at 2026-10-09 (Matcha, FCH040036) - API tax 11%
+# }
 
 
 def _expand_nested_lists(df, column_names):
@@ -102,6 +188,75 @@ def _expand_nested_lists(df, column_names):
             else:
                 expanded_data.append(row)
     return pd.DataFrame(expanded_data)
+
+
+def _frame(rows, columns):
+    """DataFrame dari list dict, kolom `columns` dijamin ada walau rows kosong / key tidak ada."""
+    df = pd.DataFrame(rows)
+    for col in columns:
+        if col not in df.columns:
+            df[col] = np.nan
+    return df
+
+
+def _assert_no_duplicate_details(df, combo_count):
+    """
+    Pengaman sebelum details ditulis ke DL. Duplikat TIDAK dibuang diam-diam (itu menyembunyikan bug),
+    tapi pipeline dihentikan.
+      - non-combo : unik per DETAIL_KEY (sama dengan dedup key iseller_mitra_dwh)
+      - combo     : row per (order, order_detail, transaksi) = jumlah entri product_combos di raw JSON
+    """
+    if df.empty:
+        return
+    problems = []
+
+    non_combo = df[df['type'] != 'comboset']
+    dup = non_combo[non_combo.duplicated(DETAIL_KEY, keep=False)]
+    if len(dup):
+        problems.append(f"{dup['order_detail_id'].nunique()} order_detail non-combo dobel, "
+                        f"contoh: {dup['order_detail_id'].drop_duplicates().head(3).tolist()}")
+
+    combo = df[df['type'] == 'comboset']
+    if len(combo):
+        rows = combo.groupby(['order_id', 'order_detail_id', 'transactions_type'], dropna=False).size()
+        expected = [max(combo_count.get(odid, 0), 1) for odid in rows.index.get_level_values('order_detail_id')]
+        bad = rows[rows.values != np.array(expected)]
+        if len(bad):
+            problems.append(f"{len(bad)} combo jumlah row-nya != jumlah product_combos, "
+                            f"contoh: {bad.index.get_level_values('order_detail_id')[:3].tolist()}")
+
+    if problems:
+        raise ValueError("Details backfill dobel, Data Lake tidak ditulis: " + "; ".join(problems))
+
+
+def _log_reconciliation(df_headers, df_details):
+    """Info saja (tidak menghentikan): order yang total details-nya meleset > RECONCILE_TOLERANCE dari header API."""
+    if df_details.empty:
+        return
+    sale_h = df_headers[df_headers['transactions_type'] == 'sale'].drop_duplicates(subset=['order_id', 'transaction_id'])
+    sale_d = df_details[df_details['transactions_type'] == 'sale']
+    cmp = (sale_h.groupby('order_id').agg(order_reference=('order_reference', 'first'),
+                                          header_total=('total_amount', lambda s: pd.to_numeric(s, errors='coerce').sum()))
+           .join(sale_d.groupby('order_id')['total_amount'].sum().rename('details_total'), how='inner'))
+    cmp['ratio'] = cmp['details_total'] / cmp['header_total'].replace(0, np.nan)
+    off = cmp[(cmp['ratio'] - 1).abs() > RECONCILE_TOLERANCE]
+    total_ratio = cmp['details_total'].sum() / cmp['header_total'].sum() if cmp['header_total'].sum() else float('nan')
+    print(f"        Rekonsiliasi details vs header API: {len(cmp)} order, total {total_ratio:.4f}x, "
+          f"{len(off)} order meleset > {RECONCILE_TOLERANCE:.0%}")
+    for oid, r in off.head(5).iterrows():
+        print(f"          {r['order_reference']}: header {r['header_total']:,.0f} | details {r['details_total']:,.0f} ({r['ratio']:.3f}x)")
+
+
+def _group_per_detail(df, amount_col, join_cols):
+    """Gabung banyak promo/discount per order_detail_id: amount di-SUM, kolom teks di-join (nilai unik, urutan asli)."""
+    df = df.copy()
+    df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
+
+    def _join(sep):
+        return lambda s: sep.join(dict.fromkeys(str(v) for v in s if pd.notna(v) and str(v) != '')) or np.nan
+
+    agg = {amount_col: 'sum', **{col: _join(sep) for col, sep in join_cols.items()}}
+    return df.groupby('order_detail_id', sort=False).agg(agg).reset_index()
 
 
 def _adjust_timezone(dt_str, offset_hours):
@@ -148,18 +303,25 @@ def _get_master_products(access_token):
     url = 'https://janjijiwapusat.isellershop.com/api/v2/GetProducts'
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/x-www-form-urlencoded'}
 
-    df_product_data = pd.DataFrame()
-    for i in range(1, 5):
-        data = {'modified_after': '2023-01-01', 'track_inventory': 'FALSE', 'page_size': 500, 'page': i}
-        resp = requests.post(url, headers=headers, data=data)
+    frames = []
+    for page in range(1, GET_PRODUCTS_MAX_PAGES + 1):
+        data = {'modified_after': '2023-01-01', 'track_inventory': 'FALSE',
+                'page_size': GET_PRODUCTS_PAGE_SIZE, 'page': page}
+        resp = requests.post(url, headers=headers, data=data, timeout=API_TIMEOUT_SEC)
         resp.raise_for_status()
         result = json.loads(resp.text)
-        df = pd.DataFrame(list(result.items()), columns=['name', 'value'])
-        try:
-            product_data = pd.DataFrame(df['value'][0])
-            df_product_data = pd.concat([product_data, df_product_data], ignore_index=False)
-        except Exception:
-            pass
+        products = result.get('products') if isinstance(result, dict) else None
+        if not isinstance(products, list):
+            raise ValueError(f"GetProducts page {page}: response tidak berisi list 'products': {resp.text[:200]}")
+        if not products:
+            break
+        frames.append(pd.DataFrame(products))
+    else:
+        raise ValueError(f"GetProducts belum habis setelah {GET_PRODUCTS_MAX_PAGES} page, master produk bisa terpotong")
+    if not frames:
+        raise ValueError("GetProducts tidak mengembalikan produk sama sekali")
+    df_product_data = pd.concat(frames, ignore_index=True)
+    print(f"        GetProducts: {page - 1} page, {len(df_product_data):,} produk")
 
     df_bundlings = df_product_data[df_product_data['type'] == 'comboset']
     df_products = df_product_data[df_product_data['type'] != 'comboset']
@@ -184,7 +346,11 @@ def _get_master_products(access_token):
 
 
 def _fetch_single_order(access_token, outlet_id, start_dt, end_dt):
-    """Single API call for one (outlet_id, time_window) pair — used by ThreadPoolExecutor."""
+    """
+    1 call GetOrders untuk (outlet_id, jendela waktu). Return list order.
+    HTTP 200 dengan body error (status false / error_message, mis. rate limit) di-retry, bukan dianggap 0 order.
+    HTTP 401/403 tidak di-retry (dilempar apa adanya -> TokenExpiredError di caller).
+    """
     url = 'https://janjijiwapusat.isellershop.com/api/v2/GetOrders'
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/x-www-form-urlencoded'}
     data = {
@@ -194,11 +360,31 @@ def _fetch_single_order(access_token, outlet_id, start_dt, end_dt):
         'includes': 'orderdetails, promotiondetails, transactions, discountdetails',
         'outlet_id': outlet_id
     }
-    resp = requests.post(url, headers=headers, data=data)
-    resp.raise_for_status()
-    result = json.loads(resp.text)
-    df = pd.DataFrame(list(result.items()), columns=['name', 'value'])
-    return df['value'][1]
+    for attempt in range(1, API_MAX_RETRIES + 1):
+        try:
+            resp = requests.post(url, headers=headers, data=data, timeout=API_TIMEOUT_SEC)
+            resp.raise_for_status()
+            result = json.loads(resp.text)
+            if not isinstance(result, dict):
+                raise ValueError(f"respons GetOrders bukan object JSON: {resp.text[:200]}")
+            if result.get('status') is False or result.get('error_message'):
+                raise ValueError(f"GetOrders error (status={result.get('status')}): {result.get('error_message')}")
+            orders = list(result.values())[1]   # sama dengan df['value'][1] versi lama
+            if not isinstance(orders, list):
+                raise ValueError(f"field order GetOrders bukan list ({type(orders).__name__}): {resp.text[:200]}")
+            # has_next_item sengaja tidak dipakai: di GetOrders field ini hampir selalu True (termasuk respons
+            # 0 order), jadi bukan penanda data terpotong (dicek 2026-10-13 vs Data Lake: lengkap).
+            return orders
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status in (401, 403) or attempt == API_MAX_RETRIES:
+                raise
+            print(f"        Retry {attempt}/{API_MAX_RETRIES} outlet={outlet_id} {start_dt}~{end_dt}: HTTP {status}")
+        except (requests.exceptions.RequestException, ValueError) as e:
+            if attempt == API_MAX_RETRIES:
+                raise
+            print(f"        Retry {attempt}/{API_MAX_RETRIES} outlet={outlet_id} {start_dt}~{end_dt}: {e}")
+        time.sleep(API_RETRY_BACKOFF_SEC * attempt)
 
 
 def _get_orders_from_api(access_token, outlet_id_list, start_date_list, end_date_list, max_workers=10):
@@ -212,26 +398,32 @@ def _get_orders_from_api(access_token, outlet_id_list, start_date_list, end_date
     print(f"        Total API calls: {len(tasks)} (parallelized, max_workers={max_workers})")
 
     get_data = [None] * len(tasks)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_idx = {
-            executor.submit(_fetch_single_order, access_token, outlet_id, start_dt, end_dt): i
-            for i, (outlet_id, start_dt, end_dt) in enumerate(tasks)
-        }
-        for future in as_completed(future_to_idx):
-            i = future_to_idx[future]
-            get_data[i] = future.result()
+
+    def _run(indices, workers):
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_idx = {executor.submit(_fetch_single_order, access_token, *tasks[i]): i for i in indices}
+            for future in as_completed(future_to_idx):
+                i = future_to_idx[future]
+                get_data[i] = future.result()
+
+    _run(range(len(tasks)), max_workers)
+
+    # Panggilan 0 order diulang sekali dengan worker lebih sedikit: kalau ternyata ada order,
+    # percobaan pertama gagal diam-diam (mis. rate limit) dan datanya dipakai.
+    empty_idx = [i for i, orders in enumerate(get_data) if not orders]
+    if empty_idx:
+        _run(empty_idx, REFETCH_EMPTY_MAX_WORKERS)
+        recovered = [i for i in empty_idx if get_data[i]]
+        print(f"        Panggilan 0 order: {len(empty_idx)} -> re-fetch memulihkan {len(recovered)} panggilan "
+              f"({sum(len(get_data[i]) for i in recovered)} order)")
+        for i in recovered[:10]:
+            print(f"          outlet={tasks[i][0]} {tasks[i][1]}~{tasks[i][2]}: {len(get_data[i])} order")
 
     return get_data
 
 
 def _process_api_data(data, order_id_list, df_products):
     """Process raw API data into cleaned headers and details DataFrames."""
-    df_headers = pd.DataFrame()
-    df_details = pd.DataFrame()
-    df_product_combos = pd.DataFrame(columns=['order_detail_id', 'product_id', 'product_sku', 'product_name', 'variant_name', 'quantity'])
-    df_promo = pd.DataFrame(columns=['order_detail_id', 'promotion_id', 'promotion_name', 'promotion_type', 'promotion_amount', 'external_id'])
-    df_discount = pd.DataFrame(columns=['order_detail_id', 'discount_name', 'discount_amount', 'external_id'])
-
     headers_list_cols = [
         'outlet_id', 'order_reference', 'outlet_code', 'outlet_name', 'order_date', 'closed_date',
         'status', 'channel', 'channel_detail', 'payment_status', 'fulfillment_status', 'notes',
@@ -240,23 +432,41 @@ def _process_api_data(data, order_id_list, df_products):
         'total_promotion_amount', 'subtotal', 'total_tax_amount', 'total_amount'
     ]
 
-    for headers in data:
-        if not headers or len(headers) == 0:
+    # Setiap item `data` = list order dari 1 call GetOrders. Combo/promo/discount diberi order_detail_id
+    # induknya secara eksplisit. 1 entri product_combos = 1 row, termasuk entri identik (komponen sah).
+    header_frames, detail_rows, combo_rows, promo_rows, discount_rows = [], [], [], [], []
+    combo_count = {}
+    for orders in data:
+        if not orders:
             continue
-        df_headers = pd.concat([df_headers, pd.json_normalize(headers, record_path=['transactions'], meta=headers_list_cols, meta_prefix='transactions_')])
-        df_details = pd.concat([df_details, pd.json_normalize(headers, record_path=['order_details'])])
+        header_frames.append(pd.json_normalize(orders, record_path=['transactions'], meta=headers_list_cols, meta_prefix='transactions_'))
+        for order in orders:
+            for detail in order.get('order_details') or []:
+                detail_rows.append(detail)
+                odid = detail.get('order_detail_id')
+                combos = detail.get('product_combos') or []
+                combo_count[odid] = len(combos)
+                combo_rows += [{**c, 'order_detail_id': odid} for c in combos]
+                promo_rows += [{**p, 'order_detail_id': odid} for p in (detail.get('promotions') or [])]
+                discount_rows += [{**d, 'order_detail_id': odid} for d in (detail.get('discounts') or [])]
 
-        if 'order_details' in headers:
-            for detail in headers['order_details']:
-                if 'product_combos' in detail and detail['product_combos'] is not None:
-                    df_product_combos = pd.concat([df_product_combos, pd.json_normalize(detail['product_combos'], meta='order_detail_id')])
-                if 'promotions' in detail and len(detail['promotions']) > 0:
-                    df_promo = pd.concat([df_promo, pd.json_normalize(detail['promotions'], meta='order_detail_id')])
-                if 'discounts' in detail and len(detail['discounts']) > 0:
-                    df_discount = pd.concat([df_discount, pd.json_normalize(detail['discounts'], meta='order_detail_id')])
-
+    df_headers = pd.concat(header_frames, ignore_index=True) if header_frames else pd.DataFrame()
     if len(df_headers) == 0:
-        return pd.DataFrame(), pd.DataFrame()
+        return (pd.DataFrame(columns=['order_id', 'fulfillment_status']),
+                pd.DataFrame(columns=['order_id', 'sales_type']),
+                pd.DataFrame(columns=FINAL_DETAIL_COLUMNS))
+
+    df_details = pd.json_normalize(detail_rows) if detail_rows else pd.DataFrame(columns=['order_id', 'product_id'])
+    df_product_combos = _frame(combo_rows, ['order_detail_id', 'product_id', 'product_sku', 'product_name', 'variant_name', 'quantity'])
+    # 1 baris per order_detail_id (amount di-SUM) supaya merge ke details tidak fan-out.
+    df_promo = _group_per_detail(
+        _frame(promo_rows, ['order_detail_id', 'promotion_id', 'promotion_name', 'promotion_type', 'promotion_amount']),
+        amount_col='promotion_amount', join_cols={'promotion_id': ', ', 'promotion_name': '-', 'promotion_type': ', '},
+    )
+    df_discount = _group_per_detail(
+        _frame(discount_rows, ['order_detail_id', 'discount_name', 'discount_amount']),
+        amount_col='discount_amount', join_cols={'discount_name': ', '},
+    )
 
     # --- Process headers ---
     df_headers = df_headers[['order_id', 'transaction_id', 'transaction_date', 'transactions_order_reference',
@@ -289,10 +499,11 @@ def _process_api_data(data, order_id_list, df_products):
     for col in ['customer_first_name', 'customer_last_name', 'notes']:
         df_headers[col] = df_headers[col].astype(str).apply(lambda x: x.encode('ascii', 'ignore').decode('ascii'))
 
-    # Sales type determination
-    df_headers_sjw = df_details[['order_id', 'product_id']].copy()
-    df_headers_sjw['is_sjw'] = df_headers_sjw['product_id'].apply(lambda x: x in PRODUCT_ID_SJW_SJO_HEADERS)
-    df_headers_sjw = df_headers_sjw[['order_id', 'is_sjw']].drop_duplicates()
+    # Sales type determination. is_sjw harus 1 nilai per order: order campuran (produk SJW + non-SJW)
+    # kalau tidak di-any() jadi 2 row (True & False) dan menggandakan header + semua details-nya.
+    df_headers_sjw = (df_details['product_id'].isin(PRODUCT_ID_SJW_LABEL)
+                      .groupby(df_details['order_id']).any()
+                      .rename('is_sjw').reset_index())
     df_merged = pd.merge(df_headers, df_headers_sjw, on='order_id', how='left')
 
     conditions = [
@@ -302,8 +513,9 @@ def _process_api_data(data, order_id_list, df_products):
         (df_merged['transactions_payment_type_name'] == 'Jiwa+'),
         (df_merged['transactions_payment_type_name'] == 'Grab Dine Out'),
         (df_merged['transactions_payment_type_name'] == 'Tokopedia Go'),
+        (df_merged['transactions_payment_type_name'] == 'QPON'),
     ]
-    values = ['Go Food', 'Grab Food', 'Shopee Food', 'Jiwa+', 'Grab Dine Out', 'Tokopedia Go']
+    values = ['Go Food', 'Grab Food', 'Shopee Food', 'Jiwa+', 'Grab Dine Out', 'Tokopedia Go', 'Qpon']
     df_merged['sales_type'] = np.select(conditions, values, default='Walk In')
     df_merged.loc[df_merged['is_sjw'] == True, 'sales_type'] = 'Sejuta Jiwa'
 
@@ -316,6 +528,12 @@ def _process_api_data(data, order_id_list, df_products):
         'total_promotion_amount', 'subtotal', 'total_tax_amount', 'total_amount', 'mdr'
     ]]
     df_final_headers['load_data_at'] = datetime.datetime.now()
+
+    order_sales_type = (df_final_headers.loc[df_final_headers['order_id'].isin(order_id_list), ['order_id', 'sales_type']]
+                        .drop_duplicates(subset=['order_id']))
+
+    if df_details.empty:
+        return df_final_headers, order_sales_type, pd.DataFrame(columns=FINAL_DETAIL_COLUMNS)
 
     # --- Process details ---
     df_merge_details = df_details.merge(df_promo, on='order_detail_id', how='left')
@@ -380,26 +598,62 @@ def _process_api_data(data, order_id_list, df_products):
     df_filtered[numeric_columns] = df_filtered[numeric_columns].fillna(0)
     df_filtered[string_columns] = df_filtered[string_columns].fillna('')
 
-    df_filtered['divisor'] = df_filtered['product_id'].apply(lambda x: 1.1 if x not in PRODUCT_ID_SJW_SJO_DETAILS else 1.11)
-    df_filtered['total_order_amount'] = df_filtered.apply(
-        lambda row: row['price'] * row['quantity'] / row['divisor'] if row['type'] == 'comboset' else row['total_order_amount'], axis=1
-    )
+    # Tarif pajak dari API: `tax_percentage` per order_detail (untuk combo = tarif level paket).
+    # -- versi lama (tarif dari list PRODUCT_ID_TAX_11, sekarang jadi komentar di atas file):
+    # df_filtered['divisor'] = df_filtered['product_id'].apply(lambda x: 1.1 if x not in PRODUCT_ID_TAX_11 else 1.11)
+    df_filtered['tax_rate'] = pd.to_numeric(df_filtered['tax_percentage'], errors='coerce').fillna(0) / 100
+    df_filtered['divisor'] = 1 + df_filtered['tax_rate']
 
+    # Combo: nilai paket dari API (total_order_amount level detail, sebelum pajak) dibagi ke komponen
+    # proporsional harga master x qty. Harga master hanya bobot -> total komponen = harga paket = header.
+    # Kalau ada komponen tanpa harga master, paket dibagi rata.
+    # -- versi lama (harga master, total combo bisa beda dengan harga paket):
+    # df_filtered['total_order_amount'] = df_filtered.apply(
+    #     lambda row: row['price'] * row['quantity'] / row['divisor'] if row['type'] == 'comboset' else row['total_order_amount'], axis=1
+    # )
+    is_combo = df_filtered['type'] == 'comboset'
+    df_filtered['combo_share'] = 1.0
+    if is_combo.any():
+        combo = df_filtered[is_combo]
+        key = [combo['order_detail_id'], combo['transactions_type']]
+        weight = (combo['price'] * combo['quantity']).clip(lower=0)
+        all_priced = (weight > 0).groupby(key).transform('all')
+        share = np.where(all_priced,
+                         weight / weight.groupby(key).transform('sum'),
+                         1 / weight.groupby(key).transform('size'))
+        df_filtered.loc[is_combo, 'combo_share'] = share
+        df_filtered.loc[is_combo, 'total_order_amount'] = combo['total_order_amount'] * share
+
+    # -- versi lama:
+    # def calculate_new_amount(group, amount_column):
+    #     divisor = 1.1 if all(pid not in PRODUCT_ID_TAX_11 for pid in group['product_id']) else 1.11
+    #     group_size = len(group)
+    #     return group[amount_column] / group_size / divisor
     def calculate_new_amount(group, amount_column):
-        divisor = 1.1 if all(pid not in PRODUCT_ID_SJW_SJO_DETAILS for pid in group['product_id']) else 1.11
-        group_size = len(group)
-        return group[amount_column] / group_size / divisor
+        # 1 group = 1 order_detail dalam 1 transaksi -> tarif pajaknya sama (dari API)
+        divisor = group['divisor'].iloc[0]
+        if (group['type'] == 'comboset').all():
+            # promo/diskon paket dibagi dengan bobot yang sama, supaya komponen murah tidak jadi minus
+            return group[amount_column] * group['combo_share'] / divisor
+        return group[amount_column] / len(group) / divisor
 
-    df_filtered['discount_amount_new'] = df_filtered.groupby('order_detail_id')['discount_order_amount'].transform(
+    # Group per (order_detail_id, transactions_type): row sale & refund dihitung terpisah.
+    # Versi lama group per order_detail_id saja -> order ber-refund cuma kena 1/2 promo/diskon di row sale.
+    detail_key = ['order_detail_id', 'transactions_type']
+    df_filtered['discount_amount_new'] = df_filtered.groupby(detail_key)['discount_order_amount'].transform(
         lambda x: calculate_new_amount(df_filtered.loc[x.index], 'discount_order_amount')
     )
-    df_filtered['promotion_amount_new'] = 0
-    df_filtered['subtotal'] = df_filtered['total_order_amount'] - df_filtered['discount_amount_new'] - df_filtered['promotion_amount_new']
-    df_filtered['tax_amount'] = df_filtered.apply(
-        lambda row: row['subtotal'] * 0.11 if row['product_id'] in PRODUCT_ID_SJW_SJO_DETAILS else row['subtotal'] * 0.1, axis=1
+    df_filtered['promotion_amount_new'] = df_filtered.groupby(detail_key)['promotion_amount'].transform(
+        lambda x: calculate_new_amount(df_filtered.loc[x.index], 'promotion_amount')
     )
+    df_filtered['subtotal'] = df_filtered['total_order_amount'] - df_filtered['discount_amount_new'] - df_filtered['promotion_amount_new']
+    # -- versi lama:
+    # df_filtered['tax_amount'] = df_filtered.apply(
+    #     lambda row: row['subtotal'] * 0.11 if row['product_id'] in PRODUCT_ID_TAX_11 else row['subtotal'] * 0.1, axis=1
+    # )
+    df_filtered['tax_amount'] = df_filtered['subtotal'] * df_filtered['tax_rate']
     df_filtered['total_amount'] = df_filtered['subtotal'] + df_filtered['tax_amount']
-    df_filtered.drop(columns=['divisor'], inplace=True)
+    df_filtered.drop(columns=['divisor', 'tax_rate', 'combo_share'], inplace=True)
 
     df_final_details = df_filtered[['order_id', 'order_detail_id', 'type', 'bundling_id', 'product_id', 'sku',
         'product_name', 'product_generic_name', 'base_price', 'quantity', 'total_order_amount', 'promotion_name',
@@ -428,11 +682,12 @@ def _process_api_data(data, order_id_list, df_products):
     df_final_details.loc[df_final_details['modifier_product_sku'] != '', 'sku'] = df_final_details['modifier_product_sku']
     df_final_details.drop(columns=['modifier_product_sku'], inplace=True)
 
-    # Filter only the unfulfilled order_ids
-    headers_cleaned = df_final_headers[df_final_headers['order_id'].isin(order_id_list)].drop_duplicates(subset=['order_id'])
-    details_cleaned = df_final_details[df_final_details['order_id'].isin(order_id_list)].drop_duplicates(subset=['order_detail_id'])
+    # Sengaja TANPA drop_duplicates: row kembar di sini adalah komponen combo identik (sah) atau
+    # baris sale/refund. Lihat iseller_mitra_dwh/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md.
+    details_cleaned = df_final_details[df_final_details['order_id'].isin(order_id_list)]
+    _assert_no_duplicate_details(details_cleaned, combo_count)
 
-    return df_final_headers, headers_cleaned, details_cleaned
+    return df_final_headers, order_sales_type, details_cleaned[FINAL_DETAIL_COLUMNS]
 
 
 def _send_alert_email(df_unfulfilled):
@@ -477,41 +732,62 @@ DatO (Data autOmation)
     print("        Alert email sent.")
 
 
-def _update_fulfilled_orders(order_ids, config_dw):
-    if not order_ids:
-        return
+def _batches(items, size=DB_BATCH_SIZE):
+    items = list(items)
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
 
-    engine = create_engine("mysql+pymysql://{user}:{pw}@{host}/{db}".format(
-        host=config_dw.hostname, user=config_dw.username,
-        pw=config_dw.password, db=config_dw.db_resource
-    ))
 
-    batch_size = 1000
+def _orders_with_existing_details(conn, order_ids):
+    """order_id yang sudah punya baris di tabel details DL (jangan di-append lagi)."""
+    stmt = text(f"SELECT DISTINCT order_id FROM {DETAILS_TABLE} WHERE order_id IN :ids").bindparams(
+        bindparam('ids', expanding=True))
+    existing = set()
+    for batch in _batches(order_ids):
+        existing.update(row[0] for row in conn.execute(stmt, {'ids': batch}))
+    return existing
+
+
+def _update_fulfilled_orders(conn, order_ids, sales_type_by_order):
+    """Set fulfilled + sales_type per order (hasil _process_api_data, bukan hardcode). Dipanggil di dalam transaksi."""
+    with_type = text("""
+        UPDATE transactions_iseller_pusat
+        SET fulfillment_status = 'fulfilled', sales_type = :sales_type
+        WHERE order_id IN :ids
+    """).bindparams(bindparam('ids', expanding=True))
+    status_only = text("""
+        UPDATE transactions_iseller_pusat
+        SET fulfillment_status = 'fulfilled'
+        WHERE order_id IN :ids
+    """).bindparams(bindparam('ids', expanding=True))
+
+    by_type = {}
+    for oid in order_ids:
+        by_type.setdefault(sales_type_by_order.get(oid), []).append(oid)
+
     total_updated = 0
-
-    with engine.begin() as conn:
-        for i in range(0, len(order_ids), batch_size):
-            batch = tuple(order_ids[i:i + batch_size])
-            result = conn.execute(text("""
-                UPDATE transactions_iseller_pusat
-                SET fulfillment_status = 'fulfilled',
-                    sales_type = 'Sejuta Jiwa'
-                WHERE order_id IN :ids
-            """), {"ids": batch})
+    for sales_type, ids in by_type.items():
+        for batch in _batches(ids):
+            if sales_type is None:
+                result = conn.execute(status_only, {'ids': batch})
+            else:
+                result = conn.execute(with_type, {'ids': batch, 'sales_type': sales_type})
             total_updated += result.rowcount
+        print(f"        sales_type {sales_type or '(tidak diubah)'}: {len(ids)} order")
+    return total_updated
 
-    print(f"        Updated {total_updated}/{len(order_ids)} orders to fulfilled.")
 
-
-def run_backfill_fulfillment(config_dw, start_date, end_date):
+def run_backfill_fulfillment(config_dw, start_date, end_date, dry_run=False):
     """
     Main entry point for backfilling fulfillment data.
     start_date / end_date: same as DWH pipelines (YYYY-MM-DD).
+    dry_run: proses lengkap (baca DL + API) tapi TIDAK menulis DL dan tidak kirim email.
+             Hasil yang akan ditulis dikembalikan di stats['frames'].
 
-    Returns dict with stats or None if no unfulfilled orders found.
+    Returns dict with stats.
     """
     print("=" * 65)
-    print("  STEP 1: BACKFILL FULFILLMENT - iSeller Pusat")
+    print("  STEP 1: BACKFILL FULFILLMENT - iSeller Pusat" + ("  [DRY RUN - Data Lake tidak ditulis]" if dry_run else ""))
     print(f"  Unfulfilled check window (same as DWH): {start_date} s/d {end_date}")
     print("=" * 65)
 
@@ -547,6 +823,7 @@ def run_backfill_fulfillment(config_dw, start_date, end_date):
             'total_fulfilled': 0,
             'total_details_dumped': 0,
             'no_unfulfilled_found': True,  # signal to orchestrator: short-circuit, skip DWH redump
+            'frames': {'df_unfulfilled_dl': df_transaction},
         }
 
     order_id_list = df_transaction['order_id'].unique().tolist()
@@ -620,11 +897,12 @@ def run_backfill_fulfillment(config_dw, start_date, end_date):
             'unfulfilled_amount': float(df_transaction['total_amount'].astype(float).sum()),
             'fulfilled_amount': 0.0,
             'unfulfilled_by_outlet': unfulfilled_by_outlet,
+            'frames': {'df_unfulfilled_dl': df_transaction},
         }
 
     # 5. Process data
     print("  Processing API data...")
-    df_final_headers, headers_cleaned, details_cleaned = _process_api_data(get_data, order_id_list, df_products)
+    df_api_headers, order_sales_type, details_cleaned = _process_api_data(get_data, order_id_list, df_products)
 
     new_order_id_list = details_cleaned['order_id'].unique().tolist()
     order_id_not_fulfilled = list(set(order_id_list) - set(new_order_id_list))
@@ -632,6 +910,7 @@ def run_backfill_fulfillment(config_dw, start_date, end_date):
 
     print(f"        Fulfilled: {len(order_id_done_fulfilled)}")
     print(f"        Still unfulfilled: {len(order_id_not_fulfilled)}")
+    _log_reconciliation(df_api_headers, details_cleaned)
 
     # Amount breakdown (for Teams/email reporting) — sourced from the initial
     # unfulfilled-orders snapshot (df_transaction), sliced by final outcome.
@@ -652,25 +931,39 @@ def run_backfill_fulfillment(config_dw, start_date, end_date):
     else:
         unfulfilled_by_outlet = []
 
-    # 6. Dump details to Data Lake
-    if len(details_cleaned) > 0:
-        print(f"\n  Dumping {len(details_cleaned)} detail rows to Data Lake...")
-        engine = get_engine_datalake(config_dw)
-        details_cleaned.to_sql('transactions_items_iseller_pusat', con=engine, if_exists='append', index=False)
-        print("        Details dumped successfully.")
-
-    # 7. Alert jika masih ada unfulfilled tapi sudah ada yang fulfilled (partial) — Fulfilled:0 handled di orchestrator
-    if order_id_not_fulfilled and order_id_done_fulfilled:
-        df_unfulfilled = df_final_headers[df_final_headers['fulfillment_status'] == 'none'][
-            ['transaction_date', 'outlet_code', 'order_id', 'fulfillment_status', 'total_amount']
-        ]
-        df_unfulfilled['transaction_date'] = pd.to_datetime(df_unfulfilled['transaction_date']).dt.tz_localize(None).dt.date
-        _send_alert_email(df_unfulfilled)
-
-    # 8. Update fulfilled orders in Data Lake
+    # 6. Dump details + update status dalam 1 transaksi (gagal di tengah -> rollback semua).
+    #    Order yang sudah punya details di DL tidak di-append lagi, jadi run ulang tidak menggandakan data.
+    details_dumped, details_skipped = 0, 0
+    details_to_dump = details_cleaned.iloc[0:0]
+    existing = set()
     if order_id_done_fulfilled:
-        print("  Updating fulfilled orders in Data Lake...")
-        _update_fulfilled_orders(order_id_done_fulfilled, config_dw)
+        sales_type_by_order = dict(zip(order_sales_type['order_id'], order_sales_type['sales_type']))
+        engine = get_engine_datalake(config_dw)
+        # dry run: koneksi baca saja (guard tetap dicek supaya hasilnya sama dengan run asli)
+        with (engine.connect() if dry_run else engine.begin()) as conn:
+            existing = _orders_with_existing_details(conn, order_id_done_fulfilled)
+            details_to_dump = details_cleaned[~details_cleaned['order_id'].isin(existing)]
+            details_skipped = len(details_cleaned) - len(details_to_dump)
+            print(f"\n  Details: {len(details_to_dump):,} row {'akan ' if dry_run else ''}di-dump, "
+                  f"{details_skipped:,} row di-skip ({len(existing)} order sudah punya details di DL)")
+            if dry_run:
+                print(f"  DRY RUN: details tidak di-dump, {len(order_id_done_fulfilled)} header tidak di-UPDATE.")
+            else:
+                if len(details_to_dump) > 0:
+                    details_to_dump.to_sql(DETAILS_TABLE, con=conn, if_exists='append', index=False)
+                details_dumped = len(details_to_dump)
+                print("  Updating fulfilled orders in Data Lake...")
+                updated = _update_fulfilled_orders(conn, order_id_done_fulfilled, sales_type_by_order)
+        if not dry_run:
+            print(f"        Committed: updated {updated}/{len(order_id_done_fulfilled)} orders to fulfilled.")
+
+    # 7. Alert partial (sebagian masih unfulfilled), dari snapshot DL. Fulfilled:0 ditangani orchestrator.
+    if order_id_not_fulfilled and order_id_done_fulfilled and not dry_run:
+        df_unfulfilled = df_unfulfilled_detail.rename(columns={'date': 'transaction_date'})
+        try:
+            _send_alert_email(df_unfulfilled)
+        except Exception as e:
+            print(f"        WARNING: alert email gagal dikirim: {e}")
 
     print("\n  Backfill fulfillment completed.")
     print("=" * 65)
@@ -678,8 +971,19 @@ def run_backfill_fulfillment(config_dw, start_date, end_date):
     return {
         'total_unfulfilled': len(order_id_not_fulfilled),
         'total_fulfilled': len(order_id_done_fulfilled),
-        'total_details_dumped': len(details_cleaned),
+        'total_details_dumped': details_dumped,
+        'details_skipped_existing': details_skipped,
         'unfulfilled_amount': unfulfilled_amount,
         'fulfilled_amount': fulfilled_amount,
         'unfulfilled_by_outlet': unfulfilled_by_outlet,
+        'frames': {
+            # snapshot order unfulfilled dari DL (input backfill)
+            'df_unfulfilled_dl': df_transaction,
+            # header API order yang fulfilled. Di DL yang di-UPDATE hanya fulfillment_status='fulfilled' + sales_type
+            'df_headers': df_api_headers[df_api_headers['order_id'].isin(order_id_done_fulfilled)],
+            # details yang di-append ke transactions_items_iseller_pusat
+            'df_details': details_to_dump,
+            # details order yang sudah punya details di DL (di-skip)
+            'df_details_skipped': details_cleaned[details_cleaned['order_id'].isin(existing)],
+        },
     }
