@@ -76,7 +76,7 @@ default_args = {
 }
 
 with DAG(
-    dag_id="etl_iseller_pusat_dwh",
+    dag_id="etl_iseller_pusat_fulfillment",
     default_args=default_args,
     description="ETL iSeller Pusat: Backfill fulfillment, then re-dump 8 DWH summary tables",
     schedule_interval="0 9 * * *",

@@ -185,8 +185,8 @@ Tanggung jawab dipecah menjadi tiga lapis (`dags/**/*.py`, `dags/**/*.sql`,
      `build_etl_report_adaptive_card` + `post_to_power_automate`.
    - DAG meng-import `send_*_teams_report` dari modul lokal itu. Contoh:
      `sjw_riders_mapping/teams_report_riders_mapping.py`,
-     `iseller_mitra_dwh/teams_report_iseller_mitra.py`,
-     `iseller_pusat_dwh/teams_report_iseller_pusat_unfulfilled.py`.
+     `iseller_mitra_cleaning/teams_report_iseller_mitra.py`,
+     `iseller_pusat_fulfillment/teams_report_iseller_pusat_unfulfilled.py`.
 
 3. **Webhook secret**:
    - Pakai **satu webhook URL global**, resolve lewat

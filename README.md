@@ -72,8 +72,8 @@ repository/
 │   └── config_db_jiwaplus.py       #   PostgreSQL JiwaPlus (consumer app)
 │
 ├── dags/                           # Airflow DAGs (mounted ke /opt/airflow/dags), 1 folder = 1 DAG
-│   ├── iseller_pusat_dwh/          #   ETL iSeller Pusat (DWH)
-│   ├── iseller_mitra_dwh/          #   ETL iSeller Mitra (DWH)
+│   ├── iseller_pusat_fulfillment/  #   ETL iSeller Pusat (backfill fulfillment + redump DWH)
+│   ├── iseller_mitra_cleaning/     #   ETL iSeller Mitra (cleaning duplikat Data Lake + redump DWH)
 │   ├── sjw_riders_mapping/         #   KSJ Link riders↔hubs mapping + sync PostgreSQL
 │   ├── f_hourly_rider_performance_tito/  # Performa rider per jam (check-in/out)
 │   ├── f_rider_mangkal_summary/    #   Deteksi sesi "mangkal" rider
@@ -173,7 +173,7 @@ access_token_pusat=YOUR_TOKEN_HERE
 
 ### Manual Run (Notebook)
 
-File: `dags/iseller_pusat_dwh/manual_run_iseller_pusat_dwh.ipynb`
+File: `dags/iseller_pusat_fulfillment/manual_run_iseller_pusat_fulfillment.ipynb`
 
 Parameter yang bisa diatur:
 
@@ -199,7 +199,7 @@ di-hardcode langsung di file itu.
 | `_AIRFLOW_WWW_USER_USERNAME` / `_AIRFLOW_WWW_USER_PASSWORD` | Login Web UI — **ganti password default sebelum deploy production** |
 | `AIRFLOW__CORE__FERNET_KEY` | Key enkripsi Variables/Connections — harus sama persis di semua service, jangan diganti setelah production jalan |
 | `access_token_pusat` | API token iSeller Pusat (expired berkala, update manual atau via Airflow Variable) |
-| `access_token_mitra` | API token iSeller Mitra (dipakai DAG `iseller_mitra_dwh` untuk tarik master bundling). Tidak ada / expired → DAG berhenti + alert email & Teams; update via Airflow Variable atau `.env`, lalu clear task |
+| `access_token_mitra` | API token iSeller Mitra (dipakai DAG `iseller_mitra_cleaning` untuk tarik master bundling). Tidak ada / expired → DAG berhenti + alert email & Teams; update via Airflow Variable atau `.env`, lalu clear task |
 | `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` | Webhook Teams untuk notifikasi/alert |
 | `GMAIL_SMTP_PASSWORD` | App password Gmail (`saputra.christabel20@gmail.com`) dipakai hampir semua DAG untuk kirim email report |
 | `DB_LAKE_*`, `DB_WAREHOUSE_*` | Kredensial MySQL Data Lake & Data Warehouse |
@@ -271,7 +271,7 @@ nano .env
 docker-compose restart airflow-scheduler airflow-webserver
 
 # 3. Trigger ulang DAG dari UI atau CLI
-docker-compose exec airflow-scheduler airflow dags trigger etl_iseller_pusat_dwh
+docker-compose exec airflow-scheduler airflow dags trigger etl_iseller_pusat_fulfillment
 ```
 
 ### Container tidak mau start

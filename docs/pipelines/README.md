@@ -10,8 +10,8 @@ Untuk cara mengelola Airflow Variables & secrets, lihat
 
 | Dokumen | DAG ID | Jadwal (Asia/Jakarta) | Ringkasan |
 |---|---|---|---|
-| [iseller_pusat_dwh](./iseller_pusat_dwh.md) | `etl_iseller_pusat_dwh` | `0 9 * * *` (09:00) | Backfill unfulfilled orders via iSeller API, lalu redump 8 tabel summary DWH |
-| [iseller_mitra_dwh](./iseller_mitra_dwh.md) | `etl_iseller_mitra_dwh_summary` | `30 8 * * *` (08:30) | Deteksi & bersihkan duplikat di Data Lake, redump 5 tabel summary secara selektif |
+| [iseller_pusat_fulfillment](./iseller_pusat_fulfillment.md) | `etl_iseller_pusat_fulfillment` | `0 9 * * *` (09:00) | Backfill unfulfilled orders via iSeller API, lalu redump 8 tabel summary DWH |
+| [iseller_mitra_cleaning](./iseller_mitra_cleaning.md) | `etl_iseller_mitra_cleaning` | `30 8 * * *` (08:30) | Deteksi & bersihkan duplikat di Data Lake, redump 5 tabel summary secara selektif |
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `etl_sejutajiwa_riders_ksj_link_mapping` | `0 8 * * *` (08:00) | Mapping rider→hub dari KSJ Link, insert ke MySQL Lake+DWH |
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `sync_sejutajiwa_riders_hubs_to_postgresql` | Dipicu via Airflow **Dataset** (bukan cron) | Sync full-table mapping MySQL → 2 database PostgreSQL |
 | [f_hourly_rider_performance_tito](./f_hourly_rider_performance_tito.md) | `f_hourly_rider_performance_tito` | `0 8 * * *` (08:00) | Performa rider per jam berbasis check-in/out (TI-TO) |
@@ -47,7 +47,7 @@ dag_*.py (Airflow DAG, tipis)
 Karakteristik penting:
 
 - **Orkestrasi bukan di graf task Airflow.** Hampir semua DAG hanya punya **1 task** (`PythonOperator`) yang memanggil satu fungsi Python besar (`run_all`/`run_pipeline`). Urutan extract→transform→load→notify dikendalikan oleh kode Python biasa, bukan oleh dependency `>>` antar task Airflow. Pengecualian: `sjw_riders_mapping` (2 task: `run_pipeline >> send_reports_task`) dan `maintenance_log_cleanup` (7 task berantai).
-- **Date window "yesterday" di Asia/Jakarta.** Sebagian besar DAG jalan pagi hari dan memproses data **H-1** (kemarin), dihitung via helper `_target_date_yesterday_jakarta()` / `_target_end_date_yesterday_jakarta()` yang mengambil `data_interval_end` (fallback `logical_date`) lalu dikonversi ke `Asia/Jakarta`. `iseller_pusat_dwh` malah memproses **rolling 9 hari** (H-9 s.d. H-1) untuk menangkap data fulfillment yang telat masuk. `f_rider_mangkal_summary` scope-nya "hari ini" penuh di dalam SQL (bukan parameter Python), karena jalan 3x sehari.
+- **Date window "yesterday" di Asia/Jakarta.** Sebagian besar DAG jalan pagi hari dan memproses data **H-1** (kemarin), dihitung via helper `_target_date_yesterday_jakarta()` / `_target_end_date_yesterday_jakarta()` yang mengambil `data_interval_end` (fallback `logical_date`) lalu dikonversi ke `Asia/Jakarta`. `iseller_pusat_fulfillment` malah memproses **rolling 9 hari** (H-9 s.d. H-1) untuk menangkap data fulfillment yang telat masuk. `f_rider_mangkal_summary` scope-nya "hari ini" penuh di dalam SQL (bukan parameter Python), karena jalan 3x sehari.
 - **Idempotensi via DELETE-lalu-INSERT.** Semua load ke tabel summary DWH memakai pola: hitung `df_final` penuh di memory dulu → `DELETE` baris untuk rentang tanggal/batch yang sama → `INSERT`/`to_sql(if_exists='append')`. Komentar yang berulang di banyak file: *"DELETE — dilakukan setelah df_final siap di memory"*. Ini membuat retry Airofw (`retries=2`, delay 5 menit) aman untuk dijalankan ulang tanpa duplikasi atau data hilang.
 - **Config loading tidak lewat Airflow Connections.** Semua kredensial database berasal dari modul `config/config_db_*.py` (kelas `Config` yang membaca `os.getenv(...)` dengan **fallback default hardcoded**), di-load secara dinamis oleh tiap DAG via:
   ```python

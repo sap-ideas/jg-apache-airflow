@@ -96,7 +96,7 @@ komponen combo 4 row (dobel di DL ×2, plus fan-out promo di ETL ×2 khusus comb
 
 ### Run mode (parameter DAG `run_mode`, 2026-10-07)
 
-Dipilih saat Trigger DAG w/ config (default `full`, dipakai run terjadwal). Pola sama dengan `etl_iseller_pusat_dwh`.
+Dipilih saat Trigger DAG w/ config (default `full`, dipakai run terjadwal). Pola sama dengan `etl_iseller_pusat_fulfillment`.
 
 | `run_mode` | `run_all(...)` | Yang dikerjakan |
 |---|---|---|
@@ -160,8 +160,8 @@ Re-dump DWH ulang dengan Trigger DAG `run_mode = dwh_only` (atau manual `run_all
 | `pipelines/check_duplicates.py` | diubah | log current rows, split non-combo/combo, pemicu combo-only (`combo_only`), cek type tidak dikenal, param `send_email` |
 | `pipelines/redump_etl_functions.py` | diubah | urutan step 1–5, `dry_run`, STOP kalau master gagal, ringkasan dedup di email, task gagal kalau pipeline DWH FAILED |
 | `teams_report_iseller_mitra.py` | diubah | card error master/token (`send_mitra_dwh_teams_report_master_error`), teks key non-combo |
-| `manual_run_iseller_mitra_cleaning.ipynb` | baru | Notebook manual, 1 sel per step (cek DL → master → clean DL → re-dump DWH → email → review). `DRY_RUN = True` bawaan; `DWH_ONLY` setara run mode `dwh_only`; berhenti setelah STEP 3 setara `datalake_only`. Pola sama dengan `manual_run_iseller_pusat_dwh.ipynb` |
-| `dag_etl_iseller_mitra_dwh.py` | diubah (kecil) | Airflow `Param` `run_mode` (`full` / `datalake_only` / `dwh_only`) dipetakan ke `skip_dl_check` / `skip_dwh`. Selebihnya tetap: `run_all(target_date, target_date, CONFIG_DW, ...)` |
+| `manual_run_iseller_mitra_cleaning.ipynb` | baru | Notebook manual, 1 sel per step (cek DL → master → clean DL → re-dump DWH → email → review). `DRY_RUN = True` bawaan; `DWH_ONLY` setara run mode `dwh_only`; berhenti setelah STEP 3 setara `datalake_only`. Pola sama dengan `manual_run_iseller_pusat_fulfillment.ipynb` |
+| `dag_etl_iseller_mitra_cleaning.py` | diubah (kecil) | Airflow `Param` `run_mode` (`full` / `datalake_only` / `dwh_only`) dipetakan ke `skip_dl_check` / `skip_dwh`. Selebihnya tetap: `run_all(target_date, target_date, CONFIG_DW, ...)` |
 
 Modul baru di-import sebagai sibling di folder `pipelines/` (pola import sama seperti file lain di folder itu).
 Password SMTP tetap dari environment variable `GMAIL_SMTP_PASSWORD`, tidak boleh di-hardcode.

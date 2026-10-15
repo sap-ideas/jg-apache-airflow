@@ -339,7 +339,7 @@ def _mitra_teams_meta(airflow_context):
     """dag_id, run_id, executed_at label (WIB)."""
     now_wib = pendulum.now("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss") + " WIB"
     if not airflow_context:
-        return "etl_iseller_mitra_dwh_summary", "n/a", now_wib
+        return "etl_iseller_mitra_cleaning", "n/a", now_wib
     return (
         airflow_context["dag"].dag_id,
         airflow_context["dag_run"].run_id,
