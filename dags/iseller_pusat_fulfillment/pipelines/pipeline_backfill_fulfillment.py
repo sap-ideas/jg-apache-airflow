@@ -47,7 +47,7 @@ GET_PRODUCTS_PAGE_SIZE = 500
 GET_PRODUCTS_MAX_PAGES = 200
 DETAILS_TABLE = 'transactions_items_iseller_pusat'
 DB_BATCH_SIZE = 1000
-# Dedup key details iSeller (sama dengan iseller_mitra_dwh/pipelines/dedup_details.py). Row sale/refund beda transactions_type.
+# Dedup key details iSeller (sama dengan iseller_mitra_cleaning/pipelines/dedup_details.py). Row sale/refund beda transactions_type.
 DETAIL_KEY = ['order_id', 'order_detail_id', 'type', 'bundling_id', 'product_id', 'sku',
               'status', 'payment_status', 'transactions_type']
 RECONCILE_TOLERANCE = 0.01
@@ -203,7 +203,7 @@ def _assert_no_duplicate_details(df, combo_count):
     """
     Pengaman sebelum details ditulis ke DL. Duplikat TIDAK dibuang diam-diam (itu menyembunyikan bug),
     tapi pipeline dihentikan.
-      - non-combo : unik per DETAIL_KEY (sama dengan dedup key iseller_mitra_dwh)
+      - non-combo : unik per DETAIL_KEY (sama dengan dedup key iseller_mitra_cleaning)
       - combo     : row per (order, order_detail, transaksi) = jumlah entri product_combos di raw JSON
     """
     if df.empty:
@@ -683,7 +683,7 @@ def _process_api_data(data, order_id_list, df_products):
     df_final_details.drop(columns=['modifier_product_sku'], inplace=True)
 
     # Sengaja TANPA drop_duplicates: row kembar di sini adalah komponen combo identik (sah) atau
-    # baris sale/refund. Lihat iseller_mitra_dwh/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md.
+    # baris sale/refund. Lihat iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md.
     details_cleaned = df_final_details[df_final_details['order_id'].isin(order_id_list)]
     _assert_no_duplicate_details(details_cleaned, combo_count)
 

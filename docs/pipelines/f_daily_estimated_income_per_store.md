@@ -11,7 +11,7 @@ File: `dag_etl_f_daily_estimated_income_per_store.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `f_daily_estimated_income_per_store` |
-| `schedule_interval` | `"0 10 * * *"` — harian 10:00 Asia/Jakarta (setelah `etl_iseller_pusat_dwh` @ 09:00 refresh source table) |
+| `schedule_interval` | `"0 10 * * *"` — harian 10:00 Asia/Jakarta (setelah `etl_iseller_pusat_fulfillment` @ 09:00 refresh source table) |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

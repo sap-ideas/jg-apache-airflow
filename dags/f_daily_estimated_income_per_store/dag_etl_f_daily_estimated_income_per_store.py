@@ -3,7 +3,7 @@ DAG: Daily Estimated Income Per Store (for Landlord)
 
 Processes yesterday's transactions_iseller_pusat data into
 `daily_est_income_per_store_for_landlord` on the Data Warehouse.
-Runs once daily at 10:00 Asia/Jakarta (after etl_iseller_pusat_dwh @ 09:00
+Runs once daily at 10:00 Asia/Jakarta (after etl_iseller_pusat_fulfillment @ 09:00
 has refreshed the source table).
 """
 from airflow import DAG

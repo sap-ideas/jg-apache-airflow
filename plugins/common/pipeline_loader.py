@@ -1,8 +1,8 @@
 """Isolate a DAG's own pipeline modules from other DAGs' same-named modules.
 
 Every DAG folder reuses generic filenames across the repo — `extract.py`,
-`transform.py`, `load.py`, `etl_orchestrator.py`, and (between `iseller_pusat_dwh`
-and `iseller_mitra_dwh`) even table-specific names like `pipeline_daily_items.py`.
+`transform.py`, `load.py`, `etl_orchestrator.py`, and (between `iseller_pusat_fulfillment`
+and `iseller_mitra_cleaning`) even table-specific names like `pipeline_daily_items.py`.
 Airflow parses every `dag_*.py` file into a single process to build/refresh the
 DagBag — both on scheduler heartbeat and on `airflow tasks run` (which reloads the
 whole DAGS_FOLDER to locate the target DAG). A bare

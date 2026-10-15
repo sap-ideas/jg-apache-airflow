@@ -56,8 +56,8 @@ Fungsi utama:
 
 **Konvensi pemakaian di tiap DAG:**
 - 1 Airflow Variable global untuk semua DAG: `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` — **tidak boleh** di-hardcode di kode DAG.
-- Task terakhir DAG biasanya `PythonOperator` dengan `trigger_rule="all_success"` yang memanggil fungsi lokal `send_*_teams_report(...)` — jadi notifikasi Teams saat ini terkirim pada **sukses**, bukan pada gagal (kecuali modul lokal DAG menambahkan logic sendiri untuk kasus gagal, seperti di `iseller_pusat_dwh`).
-- Pemanggilan `post_to_power_automate` selalu dibungkus try/except best-effort di level DAG (mis. `post_teams_safe` di `iseller_pusat_dwh/teams_report_iseller_pusat_unfulfilled.py`) — kegagalan Teams tidak pernah menggagalkan pipeline.
+- Task terakhir DAG biasanya `PythonOperator` dengan `trigger_rule="all_success"` yang memanggil fungsi lokal `send_*_teams_report(...)` — jadi notifikasi Teams saat ini terkirim pada **sukses**, bukan pada gagal (kecuali modul lokal DAG menambahkan logic sendiri untuk kasus gagal, seperti di `iseller_pusat_fulfillment`).
+- Pemanggilan `post_to_power_automate` selalu dibungkus try/except best-effort di level DAG (mis. `post_teams_safe` di `iseller_pusat_fulfillment/teams_report_iseller_pusat_unfulfilled.py`) — kegagalan Teams tidak pernah menggagalkan pipeline.
 
 ## `config/config_db_*.py`
 

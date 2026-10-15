@@ -75,7 +75,7 @@ def _fail_without_retry(message):
 def _pusat_teams_meta(airflow_context):
     now_wib = pendulum.now("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss") + " WIB"
     if not airflow_context:
-        return "etl_iseller_pusat_dwh", "n/a", now_wib
+        return "etl_iseller_pusat_fulfillment", "n/a", now_wib
     return (
         airflow_context["dag"].dag_id,
         airflow_context["dag_run"].run_id,

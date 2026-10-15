@@ -1,15 +1,15 @@
-# `iseller_pusat_dwh` — ETL iSeller Pusat
+# `iseller_pusat_fulfillment` — ETL iSeller Pusat
 
 DAG paling kompleks di project ini: backfill status fulfillment lewat API iSeller,
 lalu redump 8 tabel summary Data Warehouse.
 
 ## Metadata DAG
 
-File: `dag_etl_iseller_pusat_dwh.py`
+File: `dag_etl_iseller_pusat_fulfillment.py`
 
 | Field | Nilai |
 |---|---|
-| `dag_id` | `etl_iseller_pusat_dwh` |
+| `dag_id` | `etl_iseller_pusat_fulfillment` |
 | `schedule_interval` | `"0 9 * * *"` — harian 09:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
@@ -86,7 +86,7 @@ Semua email dikirim lewat `_send_email_safe`: SMTP error hanya di-log, tidak men
   - **Fetch GetOrders:** respons HTTP 200 dengan body error (`status: false` / `error_message`), timeout, 429 dan 5xx di-retry (3×); 401/403 langsung jadi `TokenExpiredError`. Panggilan yang hasilnya 0 order di-fetch ulang sekali (5 worker) untuk menangkap kegagalan diam-diam, dan jumlah yang terpulihkan dicetak di log. Field `has_next_item` sengaja tidak dipakai: di `GetOrders` nilainya hampir selalu `true`, termasuk untuk respons 0 order, jadi bukan penanda data terpotong (dicek 2026-10-13: 18.437/18.437 transaksi 12 Okt lengkap vs Data Lake).
   - **Order `fulfillment_status = none` tidak punya details dari API** (`order_details` kosong sampai order fulfilled). Itu memang tugas backfill ini: menarik ulang order tersebut setelah fulfilled.
   - Pengaman sebelum menulis DL: non-combo harus unik per dedup key details (sama dengan mitra), combo harus = jumlah `product_combos` di raw JSON. Dilanggar → pipeline berhenti (backfill failed), DL tidak ditulis. Log juga mencetak rekonsiliasi total details vs `total_amount` header API per order.
-  - **Details tidak di-`drop_duplicates`.** Row kembar di sini sah: komponen combo identik (mis. Thai Milk Tea ×3 dalam 1 paket) dan baris sale/refund. Dedup pakai `order_detail_id` saja akan membuang komponen combo — lihat [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra_dwh/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md). Duplikat dicegah di sumbernya: promo/discount diambil 1 baris per `order_detail_id` sebelum merge, dan order yang sudah punya details di DL tidak di-append ulang.
+  - **Details tidak di-`drop_duplicates`.** Row kembar di sini sah: komponen combo identik (mis. Thai Milk Tea ×3 dalam 1 paket) dan baris sale/refund. Dedup pakai `order_detail_id` saja akan membuang komponen combo — lihat [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md). Duplikat dicegah di sumbernya: promo/discount diambil 1 baris per `order_detail_id` sebelum merge, dan order yang sudah punya details di DL tidak di-append ulang.
   - Custom exception `TokenExpiredError(message, df_unfulfilled=None)` membawa DataFrame unfulfilled untuk ditampilkan di email/Teams.
 - **`pipeline_daily_transactions.py`**: agregasi harian per outlet dari `transactions_iseller_pusat`, join `outlet_mapping`/`kbn_transition_outlets`/`outlet_brand_mapping` untuk metadata (region/provinsi/kota/brand/ownership model) — ada logic "transition-aware": pakai ownership/brand **lama** kalau transaksi terjadi sebelum tanggal transisi KBN. Filter: `payment_status='paid' AND fulfillment_status='fulfilled' AND transactions_status='success' AND sales_type NOT LIKE '%jiwa+%'`.
 - **`pipeline_daily_sales_type.py`**: sama joinnya, grouping tambahan by `sales_type`/`payment_type`, bikin kolom komposit `sales_type_payment_method`.
@@ -119,7 +119,7 @@ Semua email dikirim lewat `_send_email_safe`: SMTP error hanya di-log, tidak men
 
 ## Manual Run
 
-Ada notebook pendamping `dags/iseller_pusat_dwh/manual_run_iseller_pusat_dwh.ipynb` untuk trigger manual dengan parameter `AUTO_MODE`, `MANUAL_START_DATE`, `MANUAL_END_DATE`, `DRY_RUN`, `SKIP_DL_CHECK`, `SKIP_DWH` — detail lengkap ada di root [`README.md`](../../README.md#manual-run-notebook).
+Ada notebook pendamping `dags/iseller_pusat_fulfillment/manual_run_iseller_pusat_fulfillment.ipynb` untuk trigger manual dengan parameter `AUTO_MODE`, `MANUAL_START_DATE`, `MANUAL_END_DATE`, `DRY_RUN`, `SKIP_DL_CHECK`, `SKIP_DWH` — detail lengkap ada di root [`README.md`](../../README.md#manual-run-notebook).
 
 - `DRY_RUN = True` (bawaan) → `run_all(..., dry_run=True)`: backfill jalan penuh (baca DL + API iSeller, termasuk cek details yang sudah ada di DL) tapi **tidak menulis apa pun** — details tidak di-dump, header tidak di-UPDATE, email/Teams tidak dikirim, DWH tidak disentuh. Hasilnya dikembalikan di `result['backfill']['frames']` (`df_headers`, `df_details`, `df_details_skipped`, `df_unfulfilled_dl`) dan ditampilkan di bagian **DRY RUN RESULT** notebook, lengkap dengan rekonsiliasi total details vs header per order. Tidak bisa digabung dengan `SKIP_DL_CHECK`.
 - `SKIP_DL_CHECK = True` setara `run_mode = dwh_only`; `SKIP_DWH = True` setara `run_mode = datalake_only`.

@@ -1,5 +1,5 @@
 """
-DAG: ETL iSeller Mitra - DWH Summary
+DAG: ETL iSeller Mitra - Cleaning Duplicates & DWH Redump
 Checks for duplicated data in Data Lake, cleans if needed,
 then re-dumps all 5 DWH summary tables from cleaned Data Lake.
 Sends email notifications at each stage.
@@ -71,7 +71,7 @@ default_args = {
 }
 
 with DAG(
-    dag_id="etl_iseller_mitra_dwh_summary",
+    dag_id="etl_iseller_mitra_cleaning",
     default_args=default_args,
     description="ETL iSeller Mitra: Check duplicates, clean DL, re-dump 5 DWH summary tables",
     schedule_interval="30 8 * * *",
