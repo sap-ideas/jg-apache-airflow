@@ -11,7 +11,7 @@ Untuk cara mengelola Airflow Variables & secrets, lihat
 | Dokumen | DAG ID | Jadwal (Asia/Jakarta) | Ringkasan |
 |---|---|---|---|
 | [iseller_pusat_fulfillment](./iseller_pusat_fulfillment.md) | `etl_iseller_pusat_fulfillment` | `0 9 * * *` (09:00) | Backfill unfulfilled orders via iSeller API, lalu redump 8 tabel summary DWH |
-| [iseller_mitra_cleaning](./iseller_mitra_cleaning.md) | `etl_iseller_mitra_cleaning` | `30 8 * * *` (08:30) | Deteksi & bersihkan duplikat di Data Lake, redump 5 tabel summary secara selektif |
+| [iseller_mitra_cleaning](./iseller_mitra_cleaning.md) | `etl_iseller_mitra_cleaning` | `30 8 * * *` (08:30, menunggu `etl_iseller_mitra_fulfillment` selesai) | Deteksi & bersihkan duplikat di Data Lake, redump 5 tabel summary secara selektif |
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `etl_sejutajiwa_riders_ksj_link_mapping` | `0 8 * * *` (08:00) | Mapping rider→hub dari KSJ Link, insert ke MySQL Lake+DWH |
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `sync_sejutajiwa_riders_hubs_to_postgresql` | Dipicu via Airflow **Dataset** (bukan cron) | Sync full-table mapping MySQL → 2 database PostgreSQL |
 | [f_hourly_rider_performance_tito](./f_hourly_rider_performance_tito.md) | `f_hourly_rider_performance_tito` | `0 8 * * *` (08:00) | Performa rider per jam berbasis check-in/out (TI-TO) |

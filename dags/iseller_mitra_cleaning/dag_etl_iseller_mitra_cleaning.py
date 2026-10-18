@@ -3,10 +3,17 @@ DAG: ETL iSeller Mitra - Cleaning Duplicates & DWH Redump
 Checks for duplicated data in Data Lake, cleans if needed,
 then re-dumps all 5 DWH summary tables from cleaned Data Lake.
 Sends email notifications at each stage.
+
+Scheduled runs wait until etl_iseller_mitra_fulfillment (08:00) has finished (success or failed):
+fulfillment appends to transactions_items_iseller_mitra, and cleaning must not DELETE + re-dump
+that table while fulfillment is still writing to it.
 """
 from airflow import DAG
+from airflow.models import DagModel, DagRun
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
+from airflow.sensors.python import PythonSensor
+from airflow.utils.state import State
 from datetime import datetime, timedelta
 import pendulum
 import sys
@@ -42,6 +49,25 @@ def _target_date_yesterday_jakarta(**context):
         raise ValueError("context missing data_interval_end and logical_date")
     jakarta = pendulum.instance(anchor).in_timezone(local_tz)
     return jakarta.subtract(days=1).to_date_string()
+
+MITRA_FULFILLMENT_DAG_ID = "etl_iseller_mitra_fulfillment"
+# Fulfillment jalan 08:00, DAG ini 08:30 -> logical date fulfillment 30 menit SEBELUM logical date DAG ini
+FULFILLMENT_RUNS_BEFORE_THIS = timedelta(minutes=30)
+
+
+def _mitra_fulfillment_finished(dag_run, logical_date, **_):
+    """True kalau run fulfillment Mitra hari yang sama sudah selesai (sukses atau gagal)."""
+    if dag_run.run_type == "manual":
+        return True  # trigger manual tidak ikut menunggu
+    fulfillment = DagModel.get_dagmodel(MITRA_FULFILLMENT_DAG_ID)
+    if fulfillment is None or fulfillment.is_paused:
+        print(f"  {MITRA_FULFILLMENT_DAG_ID} tidak ada / paused -> tidak ditunggu")
+        return True
+    runs = DagRun.find(dag_id=MITRA_FULFILLMENT_DAG_ID, execution_date=logical_date - FULFILLMENT_RUNS_BEFORE_THIS)
+    state = runs[0].state if runs else None
+    print(f"  {MITRA_FULFILLMENT_DAG_ID} state: {state}")
+    return state in (State.SUCCESS, State.FAILED)
+
 
 RUN_MODES = ["full", "datalake_only", "dwh_only"]
 
@@ -121,7 +147,18 @@ with DAG(
     },
 ) as dag:
 
-    PythonOperator(
+    wait_fulfillment = PythonSensor(
+        task_id="wait_mitra_fulfillment",
+        python_callable=_mitra_fulfillment_finished,
+        mode="reschedule",                   # lepas worker slot selama menunggu
+        poke_interval=60,
+        timeout=timedelta(hours=4).total_seconds(),
+        retries=0,
+    )
+
+    run = PythonOperator(
         task_id="run_pipeline",
         python_callable=run_pipeline,
     )
+
+    wait_fulfillment >> run
