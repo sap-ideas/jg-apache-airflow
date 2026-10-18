@@ -6,7 +6,7 @@
 |--------|----------------|------------------------------|
 | Power Automate Teams webhook | Airflow Variable `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` | Variable → env `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` (see `common.teams_powerautomate_report.resolve_power_automate_webhook_url`) |
 | iSeller Pusat API token | Airflow Variable `access_token_pusat` | Variable → env `access_token_pusat` (see `pipeline_backfill_fulfillment.run_backfill_fulfillment`) |
-| iSeller Mitra API token | Airflow Variable `access_token_mitra` | Variable → env `access_token_mitra` → file `.env` (see `iseller_mitra_cleaning/pipelines/master_bundlings.get_access_token_mitra`). Tidak ada / expired → DAG berhenti + alert, tanpa fallback |
+| iSeller Mitra API token | Airflow Variable `access_token_mitra` | Variable → env `access_token_mitra` → file `.env` (see `iseller_mitra_cleaning/pipelines/master_bundlings.get_access_token_mitra` and `iseller_mitra_fulfillment/pipelines/pipeline_backfill_fulfillment.run_backfill_fulfillment`). Tidak ada / expired → DAG berhenti + alert, tanpa fallback |
 | **Encryption at rest** for Variables/Connections | `AIRFLOW__CORE__FERNET_KEY` in `.env` (loaded by `docker-compose` `env_file`) | Must be **the same** on every Airflow component (webserver, scheduler, workers) |
 
 ## 1) Fernet key (encrypt Variable values in the metadata DB)
@@ -41,8 +41,8 @@
      **Value:** current iSeller Pusat bearer token (rotate every ~2 weeks as needed).
 
    - **Key:** `access_token_mitra`  
-     **Value:** current iSeller Mitra bearer token. If missing/expired, the `iseller_mitra_cleaning` DAG
-     stops with an email + Teams alert (reason shown); fix the token, then clear the task.
+     **Value:** current iSeller Mitra bearer token. If missing/expired, the `iseller_mitra_fulfillment` and
+     `iseller_mitra_cleaning` DAGs stop with an email + Teams alert (reason shown); fix the token, then clear the task.
 
 3. Save.
 

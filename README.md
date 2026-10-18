@@ -73,6 +73,7 @@ repository/
 │
 ├── dags/                           # Airflow DAGs (mounted ke /opt/airflow/dags), 1 folder = 1 DAG
 │   ├── iseller_pusat_fulfillment/  #   ETL iSeller Pusat (backfill fulfillment + redump DWH)
+│   ├── iseller_mitra_fulfillment/  #   ETL iSeller Mitra (backfill fulfillment ke Data Lake, tanpa redump DWH)
 │   ├── iseller_mitra_cleaning/     #   ETL iSeller Mitra (cleaning duplikat Data Lake + redump DWH)
 │   ├── sjw_riders_mapping/         #   KSJ Link riders↔hubs mapping + sync PostgreSQL
 │   ├── f_hourly_rider_performance_tito/  # Performa rider per jam (check-in/out)
@@ -186,6 +187,19 @@ Parameter yang bisa diatur:
 
 ---
 
+## iSeller Mitra Fulfillment — Ringkas
+
+DAG `etl_iseller_mitra_fulfillment` (08:00): backfill order Mitra yang masih unfulfilled lewat API
+iSeller ke Data Lake, **tanpa redump DWH**. DAG `etl_iseller_mitra_cleaning` (08:30) menunggu DAG ini
+selesai. Token: `access_token_mitra`.
+
+Manual run: **Trigger DAG w/ config** (isi `start_date`/`end_date`, pecah per bulan untuk periode
+panjang) atau notebook `dags/iseller_mitra_fulfillment/manual_run_iseller_mitra_fulfillment.ipynb`.
+Setelah backfill memproses order, redump DWH manual lewat `etl_iseller_mitra_cleaning` dengan
+`run_mode = dwh_only`. Detail lengkap: [`docs/pipelines/iseller_mitra_fulfillment.md`](docs/pipelines/iseller_mitra_fulfillment.md).
+
+---
+
 ## Environment Variables
 
 **Semua kredensial ada di `.env`** (di-gitignore, tidak pernah masuk repo). Template
@@ -199,7 +213,7 @@ di-hardcode langsung di file itu.
 | `_AIRFLOW_WWW_USER_USERNAME` / `_AIRFLOW_WWW_USER_PASSWORD` | Login Web UI — **ganti password default sebelum deploy production** |
 | `AIRFLOW__CORE__FERNET_KEY` | Key enkripsi Variables/Connections — harus sama persis di semua service, jangan diganti setelah production jalan |
 | `access_token_pusat` | API token iSeller Pusat (expired berkala, update manual atau via Airflow Variable) |
-| `access_token_mitra` | API token iSeller Mitra (dipakai DAG `iseller_mitra_cleaning` untuk tarik master bundling). Tidak ada / expired → DAG berhenti + alert email & Teams; update via Airflow Variable atau `.env`, lalu clear task |
+| `access_token_mitra` | API token iSeller Mitra (dipakai DAG `iseller_mitra_fulfillment` untuk tarik order, dan `iseller_mitra_cleaning` untuk tarik master bundling). Tidak ada / expired → DAG berhenti + alert email & Teams; update via Airflow Variable atau `.env`, lalu clear task |
 | `POWER_AUTOMATE_TEAMS_WEBHOOK_URL` | Webhook Teams untuk notifikasi/alert |
 | `GMAIL_SMTP_PASSWORD` | App password Gmail (`saputra.christabel20@gmail.com`) dipakai hampir semua DAG untuk kirim email report |
 | `DB_LAKE_*`, `DB_WAREHOUSE_*` | Kredensial MySQL Data Lake & Data Warehouse |

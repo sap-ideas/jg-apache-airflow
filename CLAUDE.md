@@ -71,7 +71,10 @@ Lihat `plugins/common/pipeline_loader.py` untuk penjelasan lengkap.
 - **Satu task per DAG (umumnya).** Orkestrasi extract → transform → load → notify
   dikendalikan kode Python biasa di dalam `etl_orchestrator.run_all()`, bukan oleh
   graf task Airflow (`>>`). DAG hanya punya satu `PythonOperator` yang memanggil
-  `run_all()`. Pengecualian: `sjw_riders_mapping` (2 task berantai) dan
+  `run_all()`. Pengecualian: `sjw_riders_mapping` (2 task berantai),
+  `iseller_mitra_cleaning` (sensor `wait_mitra_fulfillment` → `run_pipeline`: harus menunggu
+  `etl_iseller_mitra_fulfillment` selesai menulis Data Lake sebelum DELETE + re-dump; sensor mode
+  `reschedule` supaya menunggu tanpa menduduki worker slot — jangan digabung jadi satu task), dan
   `maintenance_log_cleanup` (7 task). Jangan buat DAG multi-task baru kecuali ada
   alasan sekuat itu.
 - **Date window "kemarin" (H-1) di Asia/Jakarta**, dihitung via helper
@@ -195,6 +198,7 @@ Tanggung jawab dipecah menjadi tiga lapis (`dags/**/*.py`, `dags/**/*.sql`,
    - DAG meng-import `send_*_teams_report` dari modul lokal itu. Contoh:
      `sjw_riders_mapping/teams_report_riders_mapping.py`,
      `iseller_mitra_cleaning/teams_report_iseller_mitra.py`,
+     `iseller_mitra_fulfillment/teams_report_iseller_mitra_fulfillment.py`,
      `iseller_pusat_fulfillment/teams_report_iseller_pusat_unfulfilled.py`.
 
 3. **Webhook secret**:

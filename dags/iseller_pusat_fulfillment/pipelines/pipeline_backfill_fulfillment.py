@@ -65,7 +65,7 @@ FINAL_DETAIL_COLUMNS = [
     'fulfillment_status', 'load_data_at',
 ]
 
-# Label sales_type 'Sejuta Jiwa': order berisi minimal 1 produk di list ini (sumber: notebook ingest v2).
+# Label sales_type 'Sejuta Jiwa': order berisi minimal 1 produk di list ini (sumber: notebook ingest v3).
 # BEDA dengan PRODUCT_ID_TAX_11: list pajak juga memuat packaging fee / merchandise yang bukan produk SJW.
 PRODUCT_ID_SJW_LABEL = {
     '1d2664fc-f2c4-4d63-93b0-0150c5bad9ca',
@@ -106,7 +106,8 @@ PRODUCT_ID_SJW_LABEL = {
     '64b5deb0-fcef-412f-bd2e-714a9b65a6b9',  # added at 2025-06-23
     '7ddc0da7-72bf-4518-ac37-c1c62e48d418',  # added at 2026-08-20 (Basreng Pedas Daun Jeruk, ITM010872)
     '7fed141a-8b22-4cee-80c0-df4242e136ec',  # added at 2026-10-09 (Es Kopi Susu Honey, FCH040025)
-    '5faac2db-7827-4414-a5ac-1345a79299dd',  # added at 2026-10-09 (Matcha, FCH040036)
+    '5faac2db-7827-4414-a5ac-1345a79299dd',  # added at 2026-10-09 (Matcha - KSJ, FCH040036)
+    '06aa6648-b40a-4d02-b9b7-3105fa83c762',  # added at 2026-10-09 (Matcha - SJO, ITM022191)
 }
 
 # Produk dengan pajak 11% (produk lain 10%). TIDAK DIPAKAI LAGI sejak 2026-10-13: tarif pajak sekarang
@@ -850,7 +851,9 @@ def run_backfill_fulfillment(config_dw, start_date, end_date, dry_run=False):
 
             date_str = current_date.strftime("%Y-%m-%d")
             start_dt = _adjust_timezone(f"{date_str} {start_hour:02}:00:00", -7)
-            end_dt = _adjust_timezone(f"{date_str} {end_hour:02}:59:59", -7)
+            # .999: transaksi yang closed di xx:59:59,xxx jatuh di celah 1 detik antar jendela kalau akhir
+            # jendela xx:59:59 (terbukti Mitra 11-13 Okt 2026). Sama dengan notebook ingest v3.
+            end_dt = _adjust_timezone(f"{date_str} {end_hour:02}:59:59", -7) + ".999"
             start_date_list.append(start_dt)
             end_date_list.append(end_dt)
 
