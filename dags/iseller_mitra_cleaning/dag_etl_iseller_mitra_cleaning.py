@@ -45,16 +45,29 @@ def _target_date_yesterday_jakarta(**context):
 
 RUN_MODES = ["full", "datalake_only", "dwh_only"]
 
+# Isi awal form trigger = H-1 saat file DAG di-parse. Run terjadwal tidak memakainya (lihat run_pipeline).
+DEFAULT_DATE = pendulum.now(local_tz).subtract(days=1).to_date_string()
+
 
 def run_pipeline(**context):
-    target_date = _target_date_yesterday_jakarta(**context)
-    run_mode = (context.get("params") or {}).get("run_mode", "full")
+    params = context.get("params") or {}
+    run_mode = params.get("run_mode", "full")
     if run_mode not in RUN_MODES:
         raise ValueError(f"run_mode must be one of {RUN_MODES}, got {run_mode!r}")
+
+    if context["dag_run"].run_type == "manual":
+        start_date, end_date = params["start_date"], params["end_date"]
+        if start_date > end_date:
+            raise ValueError(f"start_date ({start_date}) tidak boleh setelah end_date ({end_date})")
+        print(f"  DATE WINDOW: {start_date} s/d {end_date} (manual)")
+    else:
+        start_date = end_date = _target_date_yesterday_jakarta(**context)
+        print(f"  DATE WINDOW: {start_date} (H-1 dari jadwal)")
+
     print(f"  RUN MODE: {run_mode}")
     run_all(
-        target_date,
-        target_date,
+        start_date,
+        end_date,
         CONFIG_DW,
         skip_dl_check=(run_mode == "dwh_only"),
         skip_dwh=(run_mode == "datalake_only"),
@@ -90,6 +103,20 @@ with DAG(
                 "datalake_only = cek + bersihkan Data Lake saja, DWH tidak disentuh. "
                 "dwh_only = skip cek/cleaning Data Lake, langsung redump 5 tabel DWH dari DL apa adanya."
             ),
+        ),
+        "start_date": Param(
+            DEFAULT_DATE,
+            type="string",
+            format="date",
+            title="Start date",
+            description="Hanya dipakai saat trigger manual. Run terjadwal selalu H-1. Satu hari saja: isi sama dengan end date.",
+        ),
+        "end_date": Param(
+            DEFAULT_DATE,
+            type="string",
+            format="date",
+            title="End date",
+            description="Hanya dipakai saat trigger manual. Tanggal ini ikut diproses.",
         ),
     },
 ) as dag:

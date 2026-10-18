@@ -1,7 +1,7 @@
 # `api_integration_landlord_01065` — Revenue Sharing ke Landlord (jilid 01065)
 
 Kirim laporan revenue sharing harian ke API pihak ketiga (portal tenant Lippo Mall),
-dan simpan log request/response secara idempoten untuk audit.
+dan simpan log request/response (append-only, tanpa DELETE) untuk audit.
 
 ## Metadata DAG
 
@@ -19,6 +19,27 @@ File: `dag_api_landlord_revenue_sharing_01065.py`
 | Task | 1x `PythonOperator("run_pipeline")` |
 
 **Date window**: `target_date` = "kemarin" di Asia/Jakarta (helper duplikat di dalam DAG file ini, sama logic dengan DAG lain).
+
+**Trigger manual** (kirim ulang satu tanggal lewat Airflow UI, "Trigger DAG w/ config"):
+
+| Param | Isi |
+|---|---|
+| `target_date` | Date picker, wajib terisi (default H-1 saat DAG di-parse). Hanya dipakai saat trigger manual; run terjadwal selalu H-1. |
+| `force_resend` | Checkbox, default mati. Kalau mati, hanya payment type yang belum ada di mall yang dikirim. Centang = kirim semua. |
+
+**Anti kirim dobel** (semua tipe run, kecuali `force_resend`): payment type yang sudah ada di
+mall untuk tanggal itu tidak dikirim ulang. "Sudah ada" = di `api_landlord_log_detail` pernah
+`status='success'` atau ditolak API dengan `error_message='duplicate'`. Kalau semua sudah ada →
+tidak ada POST, task sukses (status `SKIPPED_ALREADY_SENT`). `TransactionNumber` memuat jam run,
+jadi tanpa filter ini kirim ulang dianggap transaksi baru oleh API.
+
+**Status task**:
+- Ada record gagal (timeout, HTTP non-200, atau ditolak selain `duplicate`; dihitung per record
+  dari log detail): log disimpan, email `[FAILED]`, task gagal tanpa retry. Trigger manual lagi →
+  hanya yang gagal yang dikirim.
+- Error **setelah** POST (mis. insert log gagal): task gagal tanpa retry (`PostAttemptedError`),
+  karena retry = POST ulang. Hasil per payment type tetap ada di log task. Cek dulu sebelum kirim ulang.
+- Error **sebelum** POST (extract/token): retry Airflow biasa.
 
 DAG ini spesifik untuk outlet **jilid `01065`** — nama DAG mengandung kode jilid ini.
 ⚠️ Nambah outlet lain (mis. `00570`) belum berarti otomatis jalan — lihat
@@ -54,16 +75,21 @@ LOAD — dua langkah:
   │      df_log_detail  — per-transaksi, merge dengan transactionReturnDatas API,
   │                        derive status (success/error/http_error) + error_message
   │    Handle response non-200 dan body non-JSON dengan graceful.
-  └─ dump_logs_idempotent() (load.py) — via common.db_helpers.get_engine_datalake:
-       untuk masing2 dari 2 tabel log (api_landlord_logs, api_landlord_log_detail):
-       DELETE WHERE jilid=:jilid AND transaction_date=:td → to_sql(append),
-       tiap tabel dalam transaksi engine.begin() sendiri
+  └─ dump_logs() (load.py) — via common.db_helpers.get_engine_datalake:
+       to_sql(append) ke 2 tabel log (api_landlord_logs, api_landlord_log_detail) dalam
+       SATU transaksi engine.begin() (gagal salah satu → keduanya rollback).
+       Tidak ada DELETE: tiap percobaan kirim = baris baru (beda created_at), jadi
+       kegagalan sebelumnya tetap terlihat. Percobaan terakhir per tanggal = MAX(created_at).
+
+FILTER (sebelum POST, kecuali force_resend): get_sent_payment_types() (load.py) — buang
+  payment type yang sudah ada di mall; kalau tidak ada sisa → SKIPPED_ALREADY_SENT tanpa POST.
 
 SHORT-CIRCUIT tanpa data: kalau transform_sales() kosong → skip POST API & log dump,
   kirim email "0 rows", return SUCCESS_NO_DATA
 
-NOTIFIKASI: Email HTML (Gmail SMTP) — 3 varian: sukses, 0 data, gagal — statistik
-  rows extracted/transformed, api_success/api_error, delete/insert count per tabel log
+NOTIFIKASI: Email HTML (Gmail SMTP) — 3 varian: sukses, 0 data, gagal (exception atau
+  API error → subjek [FAILED]) — statistik rows extracted/transformed, api_success/api_error,
+  jumlah baris yang di-append per tabel log
 ```
 
 ## Sistem Eksternal

@@ -10,6 +10,8 @@ Data scope: yesterday (Asia/Jakarta)
 """
 
 from airflow import DAG
+from airflow.exceptions import AirflowFailException
+from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import importlib.util
@@ -27,7 +29,7 @@ _PIPELINES_DIR = os.path.join(_DAG_DIR, 'pipelines')
 from common.pipeline_loader import load_pipeline_dir
 load_pipeline_dir(_PIPELINES_DIR)
 
-from etl_orchestrator import run_all
+from etl_orchestrator import run_all, PostAttemptedError
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +65,31 @@ def _target_date_yesterday_jakarta(**context):
     return jakarta.subtract(days=1).to_date_string()
 
 
+# Isi awal form trigger = H-1 saat file DAG di-parse. Run terjadwal tidak memakainya (lihat run_pipeline).
+DEFAULT_DATE = pendulum.now(local_tz).subtract(days=1).to_date_string()
+
+
 def run_pipeline(**context):
-    target_date = _target_date_yesterday_jakarta(**context)
-    run_all(CONFIG_DW, target_date_str=target_date)
+    if context["dag_run"].run_type == "manual":
+        target_date = context["params"]["target_date"]
+        force_resend = context["params"]["force_resend"]
+        print(f"  TARGET DATE: {target_date} (manual, force_resend={force_resend})")
+    else:
+        target_date = _target_date_yesterday_jakarta(**context)
+        force_resend = False
+        print(f"  TARGET DATE: {target_date} (H-1 dari jadwal)")
+
+    # AirflowFailException = gagal tanpa retry (retry akan POST ulang dengan TransactionNumber baru)
+    try:
+        result = run_all(CONFIG_DW, target_date_str=target_date, force_resend=force_resend)
+    except PostAttemptedError as e:
+        raise AirflowFailException(str(e)) from e
+
+    if result["status"] == "API_ERROR":
+        raise AirflowFailException(
+            f"API mengembalikan error untuk {target_date}: {result['api_error']} record gagal. "
+            "Log tersimpan di DB. Trigger manual lagi: hanya yang belum ada di mall yang dikirim."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +117,24 @@ with DAG(
     catchup=False,
     tags=["api", "landlord", "revenue-sharing", "lippomall", "production"],
     max_active_runs=1,
+    params={
+        "target_date": Param(
+            DEFAULT_DATE,
+            type="string",
+            format="date",
+            title="Target date",
+            description="Hanya dipakai saat trigger manual (kirim ulang ke API untuk satu tanggal). Run terjadwal selalu H-1.",
+        ),
+        "force_resend": Param(
+            False,
+            type="boolean",
+            title="Force resend",
+            description=(
+                "Default mati: payment type yang sudah ada di mall (pernah sukses / ditolak 'duplicate') "
+                "tidak dikirim ulang, hanya sisanya. Centang untuk kirim semua (bisa dobel di sisi mall)."
+            ),
+        ),
+    },
 ) as dag:
 
     PythonOperator(

@@ -5,7 +5,7 @@ Flow:
   1. Extract  → get_access_token + extract_sales      (extract.py)
   2. Transform → transform_sales                       (transform.py)
   3. Load API  → post_to_api                           (load.py)
-  4. Load DB   → dump_logs_idempotent                  (load.py)
+  4. Load DB   → dump_logs (append, tanpa DELETE)      (load.py)
   5. Email     → HTML summary report to the data team
 """
 
@@ -21,7 +21,7 @@ from pytz import timezone
 
 from extract import get_access_token, extract_sales
 from transform import transform_sales
-from load import post_to_api, dump_logs_idempotent, LOG_SUMMARY_TABLE, LOG_DETAIL_TABLE
+from load import post_to_api, dump_logs, get_sent_payment_types, LOG_SUMMARY_TABLE, LOG_DETAIL_TABLE
 
 JILID = "01065"
 
@@ -30,6 +30,10 @@ SMTP_PORT      = 587
 SENDER_EMAIL   = "saputra.christabel20@gmail.com"
 RECEIVER_EMAIL = ["athens.jiwagroup@gmail.com", "lahia.ardhanlahia@gmail.com"]
 SMTP_PASSWORD  = os.getenv("GMAIL_SMTP_PASSWORD")
+
+
+class PostAttemptedError(Exception):
+    """Error setelah POST ke API dijalankan. Jangan di-retry otomatis: retry = POST ulang."""
 
 
 # ---------------------------------------------------------------------------
@@ -103,12 +107,17 @@ def _send_report_email(target_date: str, stats: dict, error: str | None = None):
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_all(config_dw, target_date_str: str | None = None):
+def run_all(config_dw, target_date_str: str | None = None, force_resend: bool = False):
     """Full ETL pipeline for API Landlord Revenue Sharing — Jilid 01065.
 
     Args:
         config_dw:        Data Warehouse config module (config_db_datawarehouse.py).
         target_date_str:  'YYYY-MM-DD' to process. Defaults to yesterday (Asia/Jakarta).
+        force_resend:     False = payment type yang sudah ada di mall (lihat get_sent_payment_types)
+                          tidak dikirim ulang. True = kirim semua.
+
+    Status return: SUCCESS, SUCCESS_NO_DATA, SKIPPED_ALREADY_SENT (semua sudah ada di mall),
+    API_ERROR (API menolak/timeout, log tersimpan). Error setelah POST -> PostAttemptedError.
     """
     if target_date_str is None:
         yesterday       = (datetime.now(timezone('Asia/Jakarta')) - timedelta(days=1)).date()
@@ -121,6 +130,8 @@ def run_all(config_dw, target_date_str: str | None = None):
     total_start = time.time()
     run_now     = datetime.now(timezone('Asia/Jakarta')).replace(tzinfo=None)
 
+    post_attempted = False
+    sent           = set()
     try:
         # ---- STEP 1: EXTRACT ----
         print("\n  [1/4] EXTRACT")
@@ -153,6 +164,15 @@ def run_all(config_dw, target_date_str: str | None = None):
                 logging.warning(f"Failed to send report email: {mail_err}")
             return {"status": "SUCCESS_NO_DATA", "target_date": target_date_str}
 
+        if not force_resend:
+            sent = get_sent_payment_types(config_dw, target_date_str)
+            if sent:
+                final_data = final_data[~final_data['PaymentType'].isin(sent)].reset_index(drop=True)
+                print(f"        sudah ada di mall, tidak dikirim ulang: {sorted(sent)}")
+            if final_data.empty:
+                print("        Semua payment type sudah ada di mall. Tidak ada POST.")
+                return {"status": "SKIPPED_ALREADY_SENT", "target_date": target_date_str}
+
         # ---- STEP 3: LOAD — POST TO API ----
         print("\n  [3/4] LOAD — POST TO API")
 
@@ -161,55 +181,61 @@ def run_all(config_dw, target_date_str: str | None = None):
         print(f"        get_access_token  ({time.time() - t0:.1f}s)")
 
         t0                            = time.time()
+        post_attempted                = True
         df_log_summary, df_log_detail = post_to_api(
             final_data, token, run_now,
             refresh_token_fn=lambda: get_access_token(JILID),
         )
         print(f"        log_summary       : {len(df_log_summary):>6} rows")
         print(f"        log_detail        : {len(df_log_detail):>6} rows  ({time.time() - t0:.1f}s)")
+        # tetap terlihat di log task walaupun insert log ke DB gagal
+        print(df_log_detail[['payment_type', 'transaction_number', 'status', 'mall_transaction_id', 'error_message']].to_string(index=False))
 
         # ---- STEP 4: LOAD — DUMP LOGS TO DB ----
         print("\n  [4/4] LOAD — DUMP LOGS TO DB")
 
         t0     = time.time()
-        counts = dump_logs_idempotent(config_dw, df_log_summary, df_log_detail, target_date_str)
-        print(
-            f"        {LOG_SUMMARY_TABLE} (idempotent): "
-            f"-{counts['summary_deleted']} / +{counts['summary_inserted']} rows"
-        )
-        print(
-            f"        {LOG_DETAIL_TABLE} (idempotent): "
-            f"-{counts['detail_deleted']} / +{counts['detail_inserted']} rows  "
-            f"({time.time() - t0:.1f}s)"
-        )
+        counts = dump_logs(config_dw, df_log_summary, df_log_detail)
+        print(f"        {LOG_SUMMARY_TABLE} (append): +{counts['summary_inserted']} rows")
+        print(f"        {LOG_DETAIL_TABLE} (append): +{counts['detail_inserted']} rows  ({time.time() - t0:.1f}s)")
 
         total_elapsed = time.time() - total_start
         print(f"\n  TOTAL TIME: {total_elapsed:.1f}s")
         print("=" * 65)
 
-        api_success = int(df_log_summary['total_success'].sum()) if not df_log_summary.empty else 0
-        api_error   = int(df_log_summary['total_error'].sum())   if not df_log_summary.empty else 0
+        # dihitung per record (bukan TotalError dari API); 'duplicate' = sudah ada di mall, bukan gagal
+        is_duplicate  = df_log_detail['error_message'].astype(str).str.strip().eq('duplicate')
+        api_success   = int((df_log_detail['status'] == 'success').sum())
+        api_duplicate = int(is_duplicate.sum())
+        api_error     = len(df_log_detail) - api_success - api_duplicate
 
         stats = {
             "target_date":                                   target_date_str,
             "jilid":                                         JILID,
             "rows_extracted (raw)":                          f"{len(df_sales):,}",
-            "rows_transformed (by payment_type)":            f"{len(final_data):,}",
+            "skipped (sudah ada di mall)":                   ", ".join(sorted(sent)) or "-",
             "api_records_sent":                              f"{len(final_data):,}",
             "api_success":                                   f"{api_success:,}",
+            "api_duplicate (sudah ada di mall)":             f"{api_duplicate:,}",
             "api_error":                                     f"{api_error:,}",
-            f"{LOG_SUMMARY_TABLE} (idempotent -del/+ins)":  f"-{counts['summary_deleted']:,} / +{counts['summary_inserted']:,}",
-            f"{LOG_DETAIL_TABLE} (idempotent -del/+ins)":   f"-{counts['detail_deleted']:,} / +{counts['detail_inserted']:,}",
+            f"{LOG_SUMMARY_TABLE} (append)":                 f"+{counts['summary_inserted']:,}",
+            f"{LOG_DETAIL_TABLE} (append)":                  f"+{counts['detail_inserted']:,}",
             "total_time":                                    f"{total_elapsed:.1f}s",
         }
 
+        api_failed = api_error > 0
+        api_error_msg = (
+            f"API mengembalikan error: {api_error:,} dari {len(final_data):,} record gagal. "
+            f"Detail di {LOG_DETAIL_TABLE} (status bukan success). Kirim ulang lewat trigger manual DAG."
+        ) if api_failed else None
+
         try:
-            _send_report_email(target_date_str, stats)
+            _send_report_email(target_date_str, stats, error=api_error_msg)
         except Exception as mail_err:
             logging.warning(f"Failed to send report email: {mail_err}")
 
         return {
-            "status":           "SUCCESS",
+            "status":           "API_ERROR" if api_failed else "SUCCESS",
             "target_date":      target_date_str,
             "api_success":      api_success,
             "api_error":        api_error,
@@ -219,9 +245,14 @@ def run_all(config_dw, target_date_str: str | None = None):
         }
 
     except Exception as e:
-        print(f"\n  PIPELINE FAILED: {e}")
+        error = str(e)
+        if post_attempted:
+            error += f" | POST ke API sudah dijalankan: cek log task / {LOG_DETAIL_TABLE} sebelum kirim ulang."
+        print(f"\n  PIPELINE FAILED: {error}")
         try:
-            _send_report_email(target_date_str, {"error": str(e)}, error=str(e))
+            _send_report_email(target_date_str, {"error": error}, error=error)
         except Exception as mail_err:
             logging.warning(f"Failed to send failure email: {mail_err}")
+        if post_attempted:
+            raise PostAttemptedError(error) from e
         raise
