@@ -149,6 +149,14 @@ def run(config_dw, updated_by=UPDATED_BY):
 jadi tetap memakai email operator sebagai `load_data_by`. Aturan `NEXUS_AIRFLOW` di
 atas hanya berlaku untuk file `.py` yang berjalan di scheduler Airflow.
 
+**Pengecualian kedua — trigger manual dari UI Airflow:** run dengan
+`dag_run.run_type == "manual"` memakai email user Airflow yang men-trigger (dicari
+lewat `common.airflow_trigger_user.get_manual_trigger_user(dag_run)`: tabel `log` →
+`ab_user`; fallback `MANUAL_AIRFLOW` kalau tidak ketemu, mis. trigger lewat CLI/API).
+Run otomatis (`scheduled` / `dataset_triggered`) tetap `NEXUS_AIRFLOW`. Saat ini
+dipakai oleh `api_integration_landlord_01065` dan `api_integration_landlord_00570`.
+Jangan hardcode email personal di kode DAG untuk keperluan ini.
+
 ### 3.2 Provisioning tabel database
 
 **Pipeline tidak pernah membuat tabel sendiri** — tidak ada `CREATE TABLE` yang

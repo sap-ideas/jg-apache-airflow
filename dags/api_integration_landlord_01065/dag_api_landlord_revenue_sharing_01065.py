@@ -6,7 +6,8 @@ to the Lippo Mall Puri Revenue API, then logs the result to the Data Lake
 and emails the data team.
 
 Schedule : 10:00 Asia/Jakarta, daily
-Data scope: yesterday (Asia/Jakarta)
+Data scope: yesterday (Asia/Jakarta) on schedule. Manual trigger: pick `start_date` / `end_date`
+            (up to 31 days, one POST per date).
 """
 
 from airflow import DAG
@@ -26,10 +27,12 @@ import pendulum
 _DAG_DIR      = os.path.dirname(os.path.abspath(__file__))
 _PIPELINES_DIR = os.path.join(_DAG_DIR, 'pipelines')
 
+from common.airflow_trigger_user import get_manual_trigger_user
 from common.pipeline_loader import load_pipeline_dir
 load_pipeline_dir(_PIPELINES_DIR)
 
 from etl_orchestrator import run_all, PostAttemptedError
+from load import DEFAULT_LOAD_DATA_BY
 
 
 # ---------------------------------------------------------------------------
@@ -71,24 +74,29 @@ DEFAULT_DATE = pendulum.now(local_tz).subtract(days=1).to_date_string()
 
 def run_pipeline(**context):
     if context["dag_run"].run_type == "manual":
-        target_date = context["params"]["target_date"]
+        start_date   = context["params"]["start_date"]
+        end_date     = context["params"]["end_date"]
         force_resend = context["params"]["force_resend"]
-        print(f"  TARGET DATE: {target_date} (manual, force_resend={force_resend})")
+        # run manual dari UI = email user Airflow yang trigger; run otomatis = NEXUS_AIRFLOW (default load.py)
+        load_data_by = get_manual_trigger_user(context["dag_run"])
+        print(f"  DATE RANGE: {start_date} s/d {end_date} (manual, force_resend={force_resend}, load_data_by={load_data_by})")
     else:
-        target_date = _target_date_yesterday_jakarta(**context)
+        start_date = end_date = _target_date_yesterday_jakarta(**context)
         force_resend = False
-        print(f"  TARGET DATE: {target_date} (H-1 dari jadwal)")
+        load_data_by = DEFAULT_LOAD_DATA_BY
+        print(f"  TARGET DATE: {start_date} (H-1 dari jadwal)")
 
     # AirflowFailException = gagal tanpa retry (retry akan POST ulang dengan TransactionNumber baru)
     try:
-        result = run_all(CONFIG_DW, target_date_str=target_date, force_resend=force_resend)
+        result = run_all(CONFIG_DW, start_date_str=start_date, end_date_str=end_date,
+                         force_resend=force_resend, load_data_by=load_data_by)
     except PostAttemptedError as e:
         raise AirflowFailException(str(e)) from e
 
     if result["status"] == "API_ERROR":
         raise AirflowFailException(
-            f"API mengembalikan error untuk {target_date}: {result['api_error']} record gagal. "
-            "Log tersimpan di DB. Trigger manual lagi: hanya yang belum ada di mall yang dikirim."
+            f"Gagal untuk tanggal {', '.join(result['failed_dates'])} ({result['api_error']} record API error). "
+            "Log tersimpan di DB. Trigger manual lagi dengan rentang yang sama: hanya yang belum ada di mall yang dikirim."
         )
 
 
@@ -118,12 +126,22 @@ with DAG(
     tags=["api", "landlord", "revenue-sharing", "lippomall", "production"],
     max_active_runs=1,
     params={
-        "target_date": Param(
+        "start_date": Param(
             DEFAULT_DATE,
             type="string",
             format="date",
-            title="Target date",
-            description="Hanya dipakai saat trigger manual (kirim ulang ke API untuk satu tanggal). Run terjadwal selalu H-1.",
+            title="Start date",
+            description=(
+                "Hanya dipakai saat trigger manual (kirim ulang ke API). Awal rentang tanggal, inklusif. "
+                "Satu hari saja: isi start_date dan end_date dengan tanggal yang sama. Run otomatis selalu satu hari."
+            ),
+        ),
+        "end_date": Param(
+            DEFAULT_DATE,
+            type="string",
+            format="date",
+            title="End date",
+            description="Hanya dipakai saat trigger manual. Akhir rentang tanggal, inklusif. Maksimal 31 hari dari start_date.",
         ),
         "force_resend": Param(
             False,

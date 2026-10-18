@@ -18,16 +18,19 @@ File: `dag_api_landlord_revenue_sharing_01065.py`
 | `default_args` | `owner='data-team'`, `retries=2`, `retry_delay=5 menit` |
 | Task | 1x `PythonOperator("run_pipeline")` |
 
-**Date window**: `target_date` = "kemarin" di Asia/Jakarta (helper duplikat di dalam DAG file ini, sama logic dengan DAG lain).
+**Date window**: run terjadwal = satu hari, "kemarin" di Asia/Jakarta (helper duplikat di dalam DAG file ini, sama logic dengan DAG lain). Run manual boleh rentang `start_date`..`end_date` (maks 31 hari); satu POST dan satu baris log summary per tanggal.
 
-**Trigger manual** (kirim ulang satu tanggal lewat Airflow UI, "Trigger DAG w/ config"):
+**Trigger manual** (kirim ulang satu tanggal atau rentang tanggal lewat Airflow UI, "Trigger DAG w/ config"):
 
 | Param | Isi |
 |---|---|
-| `target_date` | Date picker, wajib terisi (default H-1 saat DAG di-parse). Hanya dipakai saat trigger manual; run terjadwal selalu H-1. |
+| `start_date` | Date picker, awal rentang (default H-1 saat DAG di-parse). Hanya dipakai saat trigger manual; run terjadwal selalu H-1. |
+| `end_date` | Date picker, akhir rentang inklusif (default H-1). Satu hari saja = isi sama dengan `start_date`. Maks 31 hari dari `start_date`, `start_date` tidak boleh setelah `end_date`. |
 | `force_resend` | Checkbox, default mati. Kalau mati, hanya payment type yang belum ada di mall yang dikirim. Centang = kirim semua. |
 
-**Anti kirim dobel** (semua tipe run, kecuali `force_resend`): payment type yang sudah ada di
+**Rentang tanggal**: tiap tanggal diproses sendiri-sendiri. Kalau satu tanggal gagal, tanggal berikutnya tetap jalan, lalu task di-fail di akhir dengan daftar tanggal yang bermasalah (tanpa retry otomatis). Trigger ulang dengan rentang yang sama hanya mengirim yang belum ada di mall. Satu email report per run, satu baris per tanggal.
+
+**Anti kirim dobel** (semua tipe run, kecuali `force_resend`, dicek per tanggal): payment type yang sudah ada di
 mall untuk tanggal itu tidak dikirim ulang. "Sudah ada" = di `api_landlord_log_detail` pernah
 `status='success'` atau ditolak API dengan `error_message='duplicate'`. Kalau semua sudah ada →
 tidak ada POST, task sukses (status `SKIPPED_ALREADY_SENT`). `TransactionNumber` memuat jam run,

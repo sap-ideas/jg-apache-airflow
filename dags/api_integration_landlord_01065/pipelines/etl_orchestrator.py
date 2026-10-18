@@ -4,9 +4,11 @@ Master Orchestrator - API Landlord Revenue Sharing ETL (Jilid 01065).
 Flow:
   1. Extract  → get_access_token + extract_sales      (extract.py)
   2. Transform → transform_sales                       (transform.py)
-  3. Load API  → post_to_api                           (load.py)
-  4. Load DB   → dump_logs (append, tanpa DELETE)      (load.py)
-  5. Email     → HTML summary report to the data team
+  3. Load API  → post_to_api, satu POST per tanggal    (load.py)
+  4. Load DB   → dump_logs per tanggal (append, tanpa DELETE) (load.py)
+  5. Email     → satu HTML summary report per run (satu baris per tanggal)
+
+Rentang tanggal: start_date..end_date (maks 31 hari); run terjadwal = satu hari.
 """
 
 import logging
@@ -21,7 +23,10 @@ from pytz import timezone
 
 from extract import get_access_token, extract_sales
 from transform import transform_sales
-from load import post_to_api, dump_logs, get_sent_payment_types, LOG_SUMMARY_TABLE, LOG_DETAIL_TABLE
+from load import (
+    post_to_api, dump_logs, get_sent_payment_types,
+    LOG_SUMMARY_TABLE, LOG_DETAIL_TABLE, DEFAULT_LOAD_DATA_BY,
+)
 
 JILID = "01065"
 
@@ -70,7 +75,7 @@ def _send_report_email(target_date: str, stats: dict, error: str | None = None):
     <html>
     <body style="font-family:Arial,sans-serif;color:#333;line-height:1.6;">
         <h2 style="color:{header_color};">{title}</h2>
-        <p>Target date: <strong>{target_date}</strong> &nbsp;|&nbsp; Jilid: <strong>{JILID}</strong></p>
+        <p>Date: <strong>{target_date}</strong> &nbsp;|&nbsp; Jilid: <strong>{JILID}</strong></p>
 
         {error_html}
 
@@ -107,37 +112,68 @@ def _send_report_email(target_date: str, stats: dict, error: str | None = None):
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_all(config_dw, target_date_str: str | None = None, force_resend: bool = False):
+MAX_RANGE_DAYS = 31
+
+
+def _date_range(start_date_str: str, end_date_str: str) -> list[str]:
+    """Daftar tanggal 'YYYY-MM-DD' dari start sampai end (inklusif). ValueError kalau terbalik / terlalu panjang."""
+    start = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    end   = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+    if start > end:
+        raise ValueError(f"start_date {start} lebih besar dari end_date {end}")
+    n_days = (end - start).days + 1
+    if n_days > MAX_RANGE_DAYS:
+        raise ValueError(f"Rentang {n_days} hari melebihi batas {MAX_RANGE_DAYS} hari")
+    return [(start + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(n_days)]
+
+
+def run_all(config_dw, start_date_str: str | None = None, end_date_str: str | None = None,
+            force_resend: bool = False, load_data_by: str = DEFAULT_LOAD_DATA_BY):
     """Full ETL pipeline for API Landlord Revenue Sharing — Jilid 01065.
+
+    Satu POST + satu baris log summary per tanggal. Kalau satu tanggal gagal, tanggal berikutnya
+    tetap diproses; kegagalan dilaporkan di akhir (status API_ERROR, `failed_dates`).
 
     Args:
         config_dw:        Data Warehouse config module (config_db_datawarehouse.py).
-        target_date_str:  'YYYY-MM-DD' to process. Defaults to yesterday (Asia/Jakarta).
+        start_date_str:   'YYYY-MM-DD' awal rentang. Default kemarin (Asia/Jakarta).
+        end_date_str:     'YYYY-MM-DD' akhir rentang (inklusif). Default = start_date_str.
+                          Maksimal MAX_RANGE_DAYS hari.
         force_resend:     False = payment type yang sudah ada di mall (lihat get_sent_payment_types)
-                          tidak dikirim ulang. True = kirim semua.
+                          tidak dikirim ulang, dicek per tanggal. True = kirim semua.
+        load_data_by:     tag untuk kolom load_data_by di kedua tabel log. Default NEXUS_AIRFLOW;
+                          DAG mengisinya dengan operator saat trigger manual.
 
-    Status return: SUCCESS, SUCCESS_NO_DATA, SKIPPED_ALREADY_SENT (semua sudah ada di mall),
-    API_ERROR (API menolak/timeout, log tersimpan). Error setelah POST -> PostAttemptedError.
+    Status per tanggal: SUCCESS, NO_DATA, SKIPPED_ALREADY_SENT (semua sudah ada di mall),
+    API_ERROR (API menolak/timeout, log tersimpan), FAILED (exception).
+    Status return: API_ERROR kalau ada tanggal gagal, selain itu SUCCESS / SKIPPED_ALREADY_SENT /
+    SUCCESS_NO_DATA. Error sebelum ada POST (extract/transform) di-raise apa adanya; error setelah
+    POST di luar loop tanggal -> PostAttemptedError.
     """
-    if target_date_str is None:
-        yesterday       = (datetime.now(timezone('Asia/Jakarta')) - timedelta(days=1)).date()
-        target_date_str = yesterday.strftime('%Y-%m-%d')
+    if start_date_str is None:
+        yesterday      = (datetime.now(timezone('Asia/Jakarta')) - timedelta(days=1)).date()
+        start_date_str = yesterday.strftime('%Y-%m-%d')
+    if end_date_str is None:
+        end_date_str = start_date_str
+
+    dates       = _date_range(start_date_str, end_date_str)
+    range_label = start_date_str if len(dates) == 1 else f"{start_date_str} s/d {end_date_str}"
 
     print("=" * 65)
-    print(f"  ETL API LANDLORD REVENUE SHARING  |  jilid={JILID}  |  date={target_date_str}")
+    print(f"  ETL API LANDLORD REVENUE SHARING  |  jilid={JILID}  |  date={range_label}  ({len(dates)} hari)")
     print("=" * 65)
 
     total_start = time.time()
     run_now     = datetime.now(timezone('Asia/Jakarta')).replace(tzinfo=None)
 
     post_attempted = False
-    sent           = set()
+    results        = {}
     try:
         # ---- STEP 1: EXTRACT ----
         print("\n  [1/4] EXTRACT")
 
         t0       = time.time()
-        df_sales = extract_sales(config_dw, target_date_str, target_date_str)
+        df_sales = extract_sales(config_dw, start_date_str, end_date_str)
         print(f"        extract_sales     : {len(df_sales):>6} rows  ({time.time() - t0:.1f}s)")
 
         # ---- STEP 2: TRANSFORM ----
@@ -147,101 +183,128 @@ def run_all(config_dw, target_date_str: str | None = None, force_resend: bool = 
         final_data = transform_sales(df_sales, run_now)
         print(f"        transform_sales   : {len(final_data):>6} rows  ({time.time() - t0:.1f}s)")
 
-        if final_data.empty:
-            print("        No data to send — skipping API call and log dump.")
-            total_elapsed = time.time() - total_start
-            stats = {
-                "target_date":      target_date_str,
-                "jilid":            JILID,
-                "rows_extracted":   "0",
-                "rows_transformed": "0",
-                "api_records_sent": "0 (no data)",
-                "total_time":       f"{total_elapsed:.1f}s",
-            }
+        # ---- STEP 3+4: LOAD (POST TO API + DUMP LOGS), per tanggal ----
+        print("\n  [3-4/4] LOAD — POST TO API + DUMP LOGS (per tanggal)")
+
+        token = None
+        for d in dates:
+            print(f"\n        ---- {d} ----")
+            df_d = final_data[final_data['TransactionDate'].astype(str) == d].reset_index(drop=True)
+            if df_d.empty:
+                print("        No data — skipping API call and log dump.")
+                results[d] = {"status": "NO_DATA"}
+                continue
+
+            posted = False
+            sent   = set()
             try:
-                _send_report_email(target_date_str, stats)
-            except Exception as mail_err:
-                logging.warning(f"Failed to send report email: {mail_err}")
-            return {"status": "SUCCESS_NO_DATA", "target_date": target_date_str}
+                if not force_resend:
+                    sent = get_sent_payment_types(config_dw, d)
+                    if sent:
+                        df_d = df_d[~df_d['PaymentType'].isin(sent)].reset_index(drop=True)
+                        print(f"        sudah ada di mall, tidak dikirim ulang: {sorted(sent)}")
+                    if df_d.empty:
+                        print("        Semua payment type sudah ada di mall. Tidak ada POST.")
+                        results[d] = {"status": "SKIPPED_ALREADY_SENT", "skipped": sorted(sent)}
+                        continue
 
-        if not force_resend:
-            sent = get_sent_payment_types(config_dw, target_date_str)
-            if sent:
-                final_data = final_data[~final_data['PaymentType'].isin(sent)].reset_index(drop=True)
-                print(f"        sudah ada di mall, tidak dikirim ulang: {sorted(sent)}")
-            if final_data.empty:
-                print("        Semua payment type sudah ada di mall. Tidak ada POST.")
-                return {"status": "SKIPPED_ALREADY_SENT", "target_date": target_date_str}
+                if token is None:
+                    token = get_access_token(JILID)
 
-        # ---- STEP 3: LOAD — POST TO API ----
-        print("\n  [3/4] LOAD — POST TO API")
+                posted                        = True
+                post_attempted                = True
+                df_log_summary, df_log_detail = post_to_api(
+                    df_d, token, run_now,
+                    refresh_token_fn=lambda: get_access_token(JILID),
+                    load_data_by=load_data_by,
+                )
+                # tetap terlihat di log task walaupun insert log ke DB gagal
+                print(df_log_detail[['payment_type', 'transaction_number', 'status', 'mall_transaction_id', 'error_message']].to_string(index=False))
 
-        t0    = time.time()
-        token = get_access_token(JILID)
-        print(f"        get_access_token  ({time.time() - t0:.1f}s)")
+                counts = dump_logs(config_dw, df_log_summary, df_log_detail)
+                print(f"        {LOG_SUMMARY_TABLE} (append): +{counts['summary_inserted']} rows")
+                print(f"        {LOG_DETAIL_TABLE} (append): +{counts['detail_inserted']} rows")
 
-        t0                            = time.time()
-        post_attempted                = True
-        df_log_summary, df_log_detail = post_to_api(
-            final_data, token, run_now,
-            refresh_token_fn=lambda: get_access_token(JILID),
-        )
-        print(f"        log_summary       : {len(df_log_summary):>6} rows")
-        print(f"        log_detail        : {len(df_log_detail):>6} rows  ({time.time() - t0:.1f}s)")
-        # tetap terlihat di log task walaupun insert log ke DB gagal
-        print(df_log_detail[['payment_type', 'transaction_number', 'status', 'mall_transaction_id', 'error_message']].to_string(index=False))
-
-        # ---- STEP 4: LOAD — DUMP LOGS TO DB ----
-        print("\n  [4/4] LOAD — DUMP LOGS TO DB")
-
-        t0     = time.time()
-        counts = dump_logs(config_dw, df_log_summary, df_log_detail)
-        print(f"        {LOG_SUMMARY_TABLE} (append): +{counts['summary_inserted']} rows")
-        print(f"        {LOG_DETAIL_TABLE} (append): +{counts['detail_inserted']} rows  ({time.time() - t0:.1f}s)")
+                # dihitung per record (bukan TotalError dari API); 'duplicate' = sudah ada di mall, bukan gagal
+                is_duplicate  = df_log_detail['error_message'].astype(str).str.strip().eq('duplicate')
+                api_success   = int((df_log_detail['status'] == 'success').sum())
+                api_duplicate = int(is_duplicate.sum())
+                api_error     = len(df_log_detail) - api_success - api_duplicate
+                results[d] = {
+                    "status":        "API_ERROR" if api_error > 0 else "SUCCESS",
+                    "records_sent":  len(df_d),
+                    "api_success":   api_success,
+                    "api_duplicate": api_duplicate,
+                    "api_error":     api_error,
+                    "skipped":       sorted(sent),
+                }
+            except Exception as date_err:
+                msg = str(date_err)
+                if posted:
+                    msg += f" | POST ke API sudah dijalankan: cek {LOG_DETAIL_TABLE} sebelum kirim ulang."
+                print(f"        FAILED {d}: {msg}")
+                results[d] = {"status": "FAILED", "error": msg}
 
         total_elapsed = time.time() - total_start
         print(f"\n  TOTAL TIME: {total_elapsed:.1f}s")
         print("=" * 65)
 
-        # dihitung per record (bukan TotalError dari API); 'duplicate' = sudah ada di mall, bukan gagal
-        is_duplicate  = df_log_detail['error_message'].astype(str).str.strip().eq('duplicate')
-        api_success   = int((df_log_detail['status'] == 'success').sum())
-        api_duplicate = int(is_duplicate.sum())
-        api_error     = len(df_log_detail) - api_success - api_duplicate
+        failed_dates = [d for d, r in results.items() if r["status"] in ("API_ERROR", "FAILED")]
+        sent_dates   = [r for r in results.values() if r["status"] in ("SUCCESS", "API_ERROR")]
+        api_error    = sum(r.get("api_error", 0) for r in results.values())
 
         stats = {
-            "target_date":                                   target_date_str,
-            "jilid":                                         JILID,
-            "rows_extracted (raw)":                          f"{len(df_sales):,}",
-            "skipped (sudah ada di mall)":                   ", ".join(sorted(sent)) or "-",
-            "api_records_sent":                              f"{len(final_data):,}",
-            "api_success":                                   f"{api_success:,}",
-            "api_duplicate (sudah ada di mall)":             f"{api_duplicate:,}",
-            "api_error":                                     f"{api_error:,}",
-            f"{LOG_SUMMARY_TABLE} (append)":                 f"+{counts['summary_inserted']:,}",
-            f"{LOG_DETAIL_TABLE} (append)":                  f"+{counts['detail_inserted']:,}",
-            "total_time":                                    f"{total_elapsed:.1f}s",
+            "range":                       range_label,
+            "jilid":                       JILID,
+            "rows_extracted (raw)":        f"{len(df_sales):,}",
+            "api_records_sent":            f"{sum(r['records_sent'] for r in sent_dates):,}",
+            "api_success":                 f"{sum(r.get('api_success', 0) for r in sent_dates):,}",
+            "api_duplicate (sudah ada di mall)": f"{sum(r.get('api_duplicate', 0) for r in sent_dates):,}",
+            "api_error":                   f"{api_error:,}",
+            "total_time":                  f"{total_elapsed:.1f}s",
         }
+        for d, r in results.items():
+            if r["status"] in ("SUCCESS", "API_ERROR"):
+                detail = (f"{r['status']} | sent {r['records_sent']} | success {r['api_success']} | "
+                          f"duplicate {r['api_duplicate']} | error {r['api_error']}")
+                if r["skipped"]:
+                    detail += f" | skipped (sudah ada di mall): {', '.join(r['skipped'])}"
+            elif r["status"] == "SKIPPED_ALREADY_SENT":
+                detail = f"SKIPPED_ALREADY_SENT | {', '.join(r['skipped'])}"
+            elif r["status"] == "FAILED":
+                detail = f"FAILED | {r['error']}"
+            else:
+                detail = "NO_DATA"
+            stats[d] = detail
 
-        api_failed = api_error > 0
-        api_error_msg = (
-            f"API mengembalikan error: {api_error:,} dari {len(final_data):,} record gagal. "
-            f"Detail di {LOG_DETAIL_TABLE} (status bukan success). Kirim ulang lewat trigger manual DAG."
-        ) if api_failed else None
+        error_msg = (
+            f"Gagal untuk tanggal: {', '.join(failed_dates)} ({api_error:,} record API error). "
+            f"Detail di {LOG_DETAIL_TABLE} (status bukan success). Kirim ulang lewat trigger manual DAG: "
+            "hanya yang belum ada di mall yang dikirim."
+        ) if failed_dates else None
 
         try:
-            _send_report_email(target_date_str, stats, error=api_error_msg)
+            _send_report_email(range_label, stats, error=error_msg)
         except Exception as mail_err:
             logging.warning(f"Failed to send report email: {mail_err}")
 
+        if failed_dates:
+            status = "API_ERROR"
+        elif sent_dates:
+            status = "SUCCESS"
+        elif any(r["status"] == "SKIPPED_ALREADY_SENT" for r in results.values()):
+            status = "SKIPPED_ALREADY_SENT"
+        else:
+            status = "SUCCESS_NO_DATA"
+
         return {
-            "status":           "API_ERROR" if api_failed else "SUCCESS",
-            "target_date":      target_date_str,
-            "api_success":      api_success,
-            "api_error":        api_error,
-            "summary_inserted": counts['summary_inserted'],
-            "detail_inserted":  counts['detail_inserted'],
-            "stats":            stats,
+            "status":       status,
+            "start_date":   start_date_str,
+            "end_date":     end_date_str,
+            "dates":        results,
+            "failed_dates": failed_dates,
+            "api_error":    api_error,
+            "stats":        stats,
         }
 
     except Exception as e:
@@ -250,7 +313,7 @@ def run_all(config_dw, target_date_str: str | None = None, force_resend: bool = 
             error += f" | POST ke API sudah dijalankan: cek log task / {LOG_DETAIL_TABLE} sebelum kirim ulang."
         print(f"\n  PIPELINE FAILED: {error}")
         try:
-            _send_report_email(target_date_str, {"error": error}, error=error)
+            _send_report_email(range_label, {"error": error}, error=error)
         except Exception as mail_err:
             logging.warning(f"Failed to send failure email: {mail_err}")
         if post_attempted:

@@ -6,7 +6,7 @@ Processes yesterday's transactions_iseller_pusat data into
 Runs once daily at 10:00 Asia/Jakarta (after etl_iseller_pusat_fulfillment @ 09:00
 has refreshed the source table).
 """
-from airflow import DAG
+from airflow import DAG, Dataset
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import importlib.util
@@ -30,6 +30,9 @@ def load_config(config_path):
 CONFIG_DW = load_config("/opt/airflow/config/config_db_datawarehouse.py")
 
 local_tz = pendulum.timezone("Asia/Jakarta")
+
+# Emitted on success; triggers downstream landlord API DAGs (e.g. api_landlord_revenue_sharing_00570)
+DATASET_DAILY_EST_INCOME = Dataset("f_daily_estimated_income_per_store://daily_est_income_per_store_for_landlord")
 
 
 def _target_date_yesterday_jakarta(**context):
@@ -72,4 +75,5 @@ with DAG(
     PythonOperator(
         task_id="run_pipeline",
         python_callable=run_task,
+        outlets=[DATASET_DAILY_EST_INCOME],
     )
