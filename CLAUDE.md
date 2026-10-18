@@ -84,7 +84,8 @@ Lihat `plugins/common/pipeline_loader.py` untuk penjelasan lengkap.
   `df_final` penuh di memory dulu → `DELETE` baris untuk range/batch yang sama →
   `INSERT` / `to_sql(if_exists='append')`. Ini yang membuat retry Airflow
   (`retries=2`, delay 5 menit) aman dijalankan ulang tanpa duplikasi atau data
-  hilang.
+  hilang. Pengecualian: tabel log `api_landlord_logs` / `api_landlord_log_detail`
+  (`api_integration_landlord_01065`) append-only supaya kegagalan kirim tetap terlihat.
 - **Notifikasi**: email (Gmail SMTP, `GMAIL_SMTP_PASSWORD`) adalah default/wajib.
   Teams (Power Automate) **opsional dan selalu best-effort** — bungkus try/except,
   kegagalan kirim Teams hanya `logging.warning`, tidak boleh menggagalkan DAG.

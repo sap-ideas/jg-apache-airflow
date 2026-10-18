@@ -48,13 +48,27 @@ def _target_end_date_yesterday_jakarta(**context):
 
 RUN_MODES = ["full", "datalake_only", "dwh_only"]
 
+# Isi awal form trigger = window default saat file DAG di-parse. Run terjadwal tidak memakainya (lihat run_pipeline).
+DEFAULT_END_DATE = pendulum.now(local_tz).subtract(days=1).to_date_string()
+DEFAULT_START_DATE = pendulum.parse(DEFAULT_END_DATE).subtract(days=8).to_date_string()
+
 
 def run_pipeline(**context):
-    end_date = _target_end_date_yesterday_jakarta(**context)
-    start_date = pendulum.parse(end_date).subtract(days=8).to_date_string()
-    run_mode = (context.get("params") or {}).get("run_mode", "full")
+    params = context.get("params") or {}
+    run_mode = params.get("run_mode", "full")
     if run_mode not in RUN_MODES:
         raise ValueError(f"run_mode must be one of {RUN_MODES}, got {run_mode!r}")
+
+    if context["dag_run"].run_type == "manual":
+        start_date, end_date = params["start_date"], params["end_date"]
+        if start_date > end_date:
+            raise ValueError(f"start_date ({start_date}) tidak boleh setelah end_date ({end_date})")
+        print(f"  DATE WINDOW: {start_date} s/d {end_date} (manual)")
+    else:
+        end_date = _target_end_date_yesterday_jakarta(**context)
+        start_date = pendulum.parse(end_date).subtract(days=8).to_date_string()
+        print(f"  DATE WINDOW: {start_date} s/d {end_date} (H-1 minus 8 hari dari jadwal)")
+
     print(f"  RUN MODE: {run_mode}")
     run_all(
         start_date,
@@ -95,6 +109,20 @@ with DAG(
                 "datalake_only = backfill Data Lake saja, DWH tidak disentuh. "
                 "dwh_only = skip pengecekan Data Lake, langsung redump DWH."
             ),
+        ),
+        "start_date": Param(
+            DEFAULT_START_DATE,
+            type="string",
+            format="date",
+            title="Start date",
+            description="Hanya dipakai saat trigger manual. Run terjadwal selalu H-1 minus 8 hari. Satu hari saja: isi sama dengan end date.",
+        ),
+        "end_date": Param(
+            DEFAULT_END_DATE,
+            type="string",
+            format="date",
+            title="End date",
+            description="Hanya dipakai saat trigger manual. Tanggal ini ikut diproses.",
         ),
     },
 ) as dag:

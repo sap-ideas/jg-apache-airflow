@@ -1,9 +1,10 @@
 -- ============================================================
 -- Table: api_landlord_logs
 -- Database: MySQL Data Lake (config_dw.db_resource, via get_engine_datalake)
--- Written by: dags/api_integration_landlord_01065/pipelines/load.py :: dump_logs_idempotent()
---   DELETE FROM api_landlord_logs WHERE jilid=:jilid AND transaction_date=:td
---   then to_sql(if_exists='append') — one row per POST batch.
+-- Written by: dags/api_integration_landlord_01065/pipelines/load.py :: dump_logs()
+--   to_sql(if_exists='append') — one row per POST attempt, same transaction as the detail table.
+--   No DELETE: re-sending a date adds new rows (tell them apart by created_at),
+--   so earlier failures stay visible. Latest attempt per date = MAX(created_at).
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS api_landlord_logs (

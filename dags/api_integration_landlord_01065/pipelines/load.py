@@ -202,62 +202,37 @@ def post_to_api(
     return df_log_summary, df_log_detail
 
 
-def dump_logs_idempotent(
-    config_dw,
-    df_log_summary: pd.DataFrame,
-    df_log_detail: pd.DataFrame,
-    target_date_str: str,
-) -> dict:
-    """Atomically replace existing log rows for (jilid, transaction_date) then re-insert.
+def dump_logs(config_dw, df_log_summary: pd.DataFrame, df_log_detail: pd.DataFrame) -> dict:
+    """Append log summary + detail dalam satu transaksi (gagal salah satu -> keduanya rollback).
 
-    Keeps Airflow retries safe — a re-run simply re-deletes then re-inserts,
-    never producing duplicates.
-
-    Args:
-        config_dw:        Data Warehouse config module.
-        df_log_summary:   output of post_to_api (summary df).
-        df_log_detail:    output of post_to_api (detail df).
-        target_date_str:  'YYYY-MM-DD' of the target processing date.
+    Tidak ada DELETE: tiap percobaan kirim jadi baris baru (dibedakan created_at),
+    jadi kegagalan sebelumnya tetap terlihat walau tanggalnya dikirim ulang.
 
     Returns:
-        dict with keys: summary_deleted, summary_inserted, detail_deleted, detail_inserted
+        dict with keys: summary_inserted, detail_inserted
     """
     engine = get_engine_datalake(config_dw)
+    with engine.begin() as conn:
+        if not df_log_summary.empty:
+            df_log_summary.to_sql(name=LOG_SUMMARY_TABLE, con=conn, if_exists="append", index=False)
+        if not df_log_detail.empty:
+            df_log_detail.to_sql(name=LOG_DETAIL_TABLE, con=conn, if_exists="append", index=False)
+    return {"summary_inserted": len(df_log_summary), "detail_inserted": len(df_log_detail)}
 
-    summary_deleted = summary_inserted = 0
-    detail_deleted  = detail_inserted  = 0
 
-    if not df_log_summary.empty:
-        with engine.begin() as conn:
-            result = conn.execute(
-                text(
-                    f"DELETE FROM {LOG_SUMMARY_TABLE} "
-                    f"WHERE jilid = :jilid AND transaction_date = :td"
-                ),
-                {"jilid": JILID, "td": target_date_str},
-            )
-            summary_deleted = result.rowcount
-            df_log_summary.to_sql(
-                name=LOG_SUMMARY_TABLE, con=conn, if_exists="append", index=False,
-            )
-            summary_inserted = len(df_log_summary)
+def get_sent_payment_types(config_dw, target_date_str: str) -> set:
+    """Payment type yang sudah ada di mall untuk tanggal ini: pernah sukses, atau ditolak API sebagai 'duplicate'.
 
-    if not df_log_detail.empty:
-        with engine.begin() as conn:
-            result = conn.execute(
-                text(
-                    f"DELETE FROM {LOG_DETAIL_TABLE} "
-                    f"WHERE jilid = :jilid AND transaction_date = :td"
-                ),
-                {"jilid": JILID, "td": target_date_str},
-            )
-            detail_deleted = result.rowcount
-            df_log_detail.to_sql(
-                name=LOG_DETAIL_TABLE, con=conn, if_exists="append", index=False,
-            )
-            detail_inserted = len(df_log_detail)
-
-    return {
-        "summary_deleted": summary_deleted, "summary_inserted": summary_inserted,
-        "detail_deleted":  detail_deleted,  "detail_inserted":  detail_inserted,
-    }
+    TransactionNumber memuat jam run, jadi kirim ulang dianggap transaksi baru oleh API.
+    """
+    engine = get_engine_datalake(config_dw)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"SELECT DISTINCT payment_type FROM {LOG_DETAIL_TABLE} "
+                f"WHERE jilid = :jilid AND transaction_date = :td "
+                f"AND (status = 'success' OR TRIM(error_message) = 'duplicate')"
+            ),
+            {"jilid": JILID, "td": target_date_str},
+        ).fetchall()
+    return {row[0] for row in rows}
