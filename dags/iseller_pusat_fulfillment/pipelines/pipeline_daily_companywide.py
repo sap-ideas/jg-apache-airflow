@@ -12,7 +12,9 @@ SUMMARY_COLS = ['total_collected', 'total_order']
 def run_daily_companywide(start_date, end_date, config_dw):
     print("  [7/8] daily_outlet_transaction_summary_companywide_new")
 
-    before = get_summary_before(config_dw, TABLE_NAME, SUMMARY_COLS, start_date, end_date)
+    # Baris ISELLER + MITRA dipegang pipeline mitra (iseller_mitra_cleaning/pipelines/pipeline_daily_companywide.py)
+    before = get_summary_before(config_dw, TABLE_NAME, SUMMARY_COLS, start_date, end_date,
+                                where_extra="NOT (datasource = 'ISELLER' AND ownership_model = 'MITRA')")
 
     conn = get_connection(config_dw, config_dw.db_target)
     cursor = conn.cursor()
@@ -102,6 +104,7 @@ def run_daily_companywide(start_date, end_date, config_dw):
             'ISELLER' as datasource
         FROM daily_transaction_summary_iseller_pusat
         WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
+            AND ownership_model <> 'MITRA'
     """)
     data_x = pd.DataFrame(cursor.fetchall(), columns=[
         "transaction_date", "week", "month", "year", "jilid",
@@ -124,6 +127,7 @@ def run_daily_companywide(start_date, end_date, config_dw):
     cursor.execute(f"""
         DELETE FROM daily_outlet_transaction_summary_companywide_new
         WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
+            AND NOT (datasource = 'ISELLER' AND ownership_model = 'MITRA')
     """)
     conn.commit()
     deleted = cursor.rowcount

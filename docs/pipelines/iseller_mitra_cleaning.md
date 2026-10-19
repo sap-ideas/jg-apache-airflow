@@ -25,7 +25,7 @@ File: `dag_etl_iseller_mitra_cleaning.py`
 | `default_args` | sama dengan DAG lain — `owner='data-team'`, `retries=2`, `retry_delay=5 menit` |
 | Task | `PythonSensor("wait_mitra_fulfillment")` → `PythonOperator("run_pipeline")` |
 | Urutan | Run terjadwal menunggu `etl_iseller_mitra_fulfillment` (08:00) selesai, sukses atau gagal, karena fulfillment menulis ke `transactions_items_iseller_mitra` dan cleaning tidak boleh DELETE + re-dump tabel itu bersamaan. Tidak menunggu kalau trigger manual atau DAG fulfillment paused / tidak ada. Timeout tunggu 4 jam (lewat itu sensor gagal, cleaning hari itu tidak jalan). |
-| Param | `run_mode`: `full` (default, run terjadwal) / `datalake_only` (cek + bersihkan DL saja, DWH tidak disentuh) / `dwh_only` (skip DL, re-dump 5 tabel DWH). Dipilih saat Trigger DAG w/ config |
+| Param | `run_mode`: `full` (default, run terjadwal) / `datalake_only` (cek + bersihkan DL saja, DWH tidak disentuh) / `dwh_only` (skip DL, re-dump 6 tabel DWH). Dipilih saat Trigger DAG w/ config |
 
 **Date window**: `start_date == end_date` = "kemarin" di Asia/Jakarta (single-day window, beda dari `iseller_pusat_fulfillment` yang rolling 9 hari).
 
@@ -60,7 +60,9 @@ STEP 4 — Redump tabel summary (SELEKTIF):
    ├─ daily_bundling_summary_iseller_pusat   (pipeline_daily_bundlings.py)  — SELALU jalan
    ├─ daily_transaction_summary_iseller_pusat(pipeline_daily_transactions.py)— hanya kalau header duplikat
    ├─ hourly_transaction_summary_iseller_pusat(pipeline_hourly_transactions.py)— hanya kalau header duplikat
-   └─ daily_sales_type_summary_iseller_pusat (pipeline_daily_sales_type.py)  — hanya kalau header duplikat
+   ├─ daily_sales_type_summary_iseller_pusat (pipeline_daily_sales_type.py)  — hanya kalau header duplikat
+   └─ daily_outlet_transaction_summary_companywide_new (pipeline_daily_companywide.py) — jalan PALING AKHIR, hanya kalau
+        daily_transactions jalan dan sukses (kalau gagal: ditandai FAILED, tidak menyalin data setengah jadi)
 
 STEP 5 — Email HTML "Re-Dump Completed" (before/after per tabel + ringkasan dedup) dan
          Teams Adaptive Card "duplicate flow" (before vs after cleaning), kecuali skip_dl_check.
@@ -73,6 +75,8 @@ Param `run_all(..., dry_run=True)`: jalankan STEP 1-3 tanpa email, tanpa DELETE/
 Detail logic dedup, daftar `reason` error master, dan hasil uji: [`FLOW_dedup_details_comboset.md`](../../dags/iseller_mitra_cleaning/FLOW_dedup_details_comboset.md)
 dan [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md).
 
+**Companywide (step 6)**: menyegarkan baris `datasource='ISELLER' AND ownership_model='MITRA'` di `daily_outlet_transaction_summary_companywide_new` dari `daily_transaction_summary_iseller_pusat`. Baris itu **dimiliki mitra**: `iseller_pusat_fulfillment` memakai kondisi kebalikannya (`ownership_model <> 'MITRA'` untuk cabang ISELLER, dan DELETE-nya mengecualikan ISELLER+MITRA), jadi tidak ada baris yang ditulis dua pipeline. Baris MITRA dari channel lain (JIWA+, MOKA) tetap ditulis pusat. Kalau mengubah salah satu kondisi, ubah keduanya.
+
 **Kenapa items/bundlings selalu redump** meski cuma detail yang duplikat (bukan header)? Karena keduanya JOIN header+detail sekaligus (dijelaskan di komentar `redump_etl_functions.py:257-271`), jadi harus selalu fresh; 3 pipeline lain murni agregat dari header saja, jadi bisa di-skip kalau header tidak bermasalah.
 
 Semua 4 tabel di sini ditulis sebagai `sources='iseller_mitra'` ke tabel yang **sama** dengan `iseller_pusat_fulfillment` (mis. `daily_transaction_summary_iseller_pusat`), dibedakan lewat kolom `sources` — jadi kedua DAG berbagi tabel target tapi dengan filter `sources` yang berbeda saat delete/redump.
@@ -80,7 +84,7 @@ Semua 4 tabel di sini ditulis sebagai `sources='iseller_mitra'` ke tabel yang **
 ## Sistem Eksternal
 
 - **MySQL Data Lake** — source: `transactions_iseller_mitra` (header), `transactions_items_iseller_mitra` (detail), filter umum `payment_status='paid' AND fulfillment_status='fulfilled' AND transactions_status='success'`, exclude `sales_type LIKE '%jiwa+%'`.
-- **MySQL Data Warehouse** — 5 tabel summary bersuffix `_iseller_pusat`, disaring `sources='iseller_mitra'`.
+- **MySQL Data Warehouse** — 5 tabel summary bersuffix `_iseller_pusat`, disaring `sources='iseller_mitra'`, plus baris ISELLER+MITRA di `daily_outlet_transaction_summary_companywide_new` (tanpa kolom `sources`, disaring `datasource`+`ownership_model`).
 - **Reference/dimension**: `outlet_mapping`, `outlet_brand_mapping`, `kbn_transition_outlets` (sama seperti di `iseller_pusat_fulfillment`, termasuk logic transisi ownership berbasis tanggal).
 - **API iSeller Mitra** — `GetProducts` (master bundling), token `access_token_mitra`.
 - **Email (Gmail SMTP)** — 4 jenis: "duplicated data alert" (merah), "data aman" (hijau), "Re-Dump Completed" (STEP 5), dan "STOPPED" (master/token gagal). Password dari env `GMAIL_SMTP_PASSWORD`; pengirim `saputra.christabel20@gmail.com` → `athens.jiwagroup@gmail.com`, `lahia.ardhanlahia@gmail.com`.

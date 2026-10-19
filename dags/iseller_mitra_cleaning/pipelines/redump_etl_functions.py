@@ -44,6 +44,7 @@ from pipeline_daily_bundlings import run_daily_bundlings
 from pipeline_daily_transactions import run_daily_transactions
 from pipeline_hourly_transactions import run_hourly_transactions
 from pipeline_daily_sales_type import run_daily_sales_type
+from pipeline_daily_companywide import run_daily_companywide
 
 
 def _send_master_error_email(start_date, end_date, master_status, dup_result):
@@ -366,12 +367,14 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, airflow_contex
            - daily_items + daily_bundlings selalu jalan (keduanya JOIN headers & details)
            - daily_transactions + hourly_transactions + daily_sales_type hanya jalan
              jika headers duplikat
+           - daily_companywide (baris ISELLER MITRA) jalan paling akhir, hanya jika
+             daily_transactions jalan dan sukses (sumbernya tabel daily_transactions)
       5. Send email report with before/after summary + Teams.
          Ada pipeline DWH yang FAILED → raise setelah report terkirim (task Airflow gagal).
 
     Args:
         skip_dl_check: jika True, skip step 1-3 (untuk case DL sudah di-clean manual),
-                       dan jalankan semua 5 pipeline.
+                       dan jalankan semua 6 pipeline.
         dry_run: jika True, jalankan step 1-3 tanpa email, tanpa DELETE/re-dump DL,
                  lalu berhenti (step 4 & 5 di-skip). Return clean_stats untuk dicek.
         skip_dwh: jika True (run_mode datalake_only), jalankan step 1-3 (DL benar-benar dibersihkan) lalu
@@ -499,15 +502,17 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, airflow_contex
             ("daily_transaction_summary_iseller_pusat", run_daily_transactions),
             ("hourly_transaction_summary_iseller_pusat", run_hourly_transactions),
             ("daily_sales_type_summary_iseller_pusat", run_daily_sales_type),
+            # harus setelah daily_transactions: membaca daily_transaction_summary_iseller_pusat
+            ("daily_outlet_transaction_summary_companywide_new", run_daily_companywide),
         ]
 
     total_pipelines = len(pipelines)
     print()
     print("=" * 65)
-    print(f"  STEP 4: RE-DUMP DWH SUMMARY - iSeller Mitra  ({total_pipelines} of 5 pipelines)")
+    print(f"  STEP 4: RE-DUMP DWH SUMMARY - iSeller Mitra  ({total_pipelines} of 6 pipelines)")
     print(f"  Period: {start_date} s/d {end_date}")
     if not has_dup_headers:
-        print("  (headers bersih → skip daily_transactions, hourly_transactions, daily_sales_type)")
+        print("  (headers bersih → skip daily_transactions, hourly_transactions, daily_sales_type, daily_companywide)")
     print("=" * 65)
 
     results = {}
@@ -515,6 +520,11 @@ def run_all(start_date, end_date, config_dw, skip_dl_check=False, airflow_contex
 
     for table_name, func in pipelines:
         print()
+        if (table_name == "daily_outlet_transaction_summary_companywide_new"
+                and results["daily_transaction_summary_iseller_pusat"]["status"] != "SUCCESS"):
+            results[table_name] = {"status": "FAILED", "error": "dilewati: daily_transactions gagal, companywide tidak boleh menyalin data setengah jadi"}
+            print(f"        SKIPPED: {results[table_name]['error']}")
+            continue
         try:
             t0 = time.time()
             deleted, dumped, before, after = func(start_date, end_date, config_dw)
