@@ -18,7 +18,7 @@ NUMERIC_COLS = ['total_gross_sales', 'total_discount', 'total_net_sales', 'total
 
 
 def run_daily_companywide(start_date, end_date, config_dw):
-    print("  daily_outlet_transaction_summary_companywide_new (ISELLER MITRA)")
+    print("  [6/6] daily_outlet_transaction_summary_companywide_new (ISELLER MITRA)")
 
     before = get_summary_before(config_dw, TABLE_NAME, SUMMARY_COLS, start_date, end_date, where_extra=OWNED_ROWS)
 
