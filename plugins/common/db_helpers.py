@@ -176,7 +176,7 @@ def ksj_link_location_db_conn(config_ksj, db_name):
 # Reusable DWH redump utilities
 # ---------------------------------------------------------------------------
 
-def get_summary_before(config_dw, table_name, sum_columns, start_date, end_date, sources=None):
+def get_summary_before(config_dw, table_name, sum_columns, start_date, end_date, sources=None, where_extra=None):
     """Query a DWH summary table to get sum of columns BEFORE delete/redump.
 
     Args:
@@ -186,6 +186,7 @@ def get_summary_before(config_dw, table_name, sum_columns, start_date, end_date,
         start_date / end_date: date strings 'YYYY-MM-DD'
         sources: optional `sources` filter (e.g. 'iseller_pusat', 'iseller_mitra').
                  When None, no filter on `sources` is applied.
+        where_extra: optional SQL condition ANDed to the WHERE (for tables without a `sources` column).
 
     Returns:
         dict {column_name: float_sum_value}
@@ -195,11 +196,13 @@ def get_summary_before(config_dw, table_name, sum_columns, start_date, end_date,
 
     select_parts = ", ".join([f"COALESCE(SUM({col}), 0)" for col in sum_columns])
     sources_filter = f"AND sources = '{sources}'" if sources else ""
+    extra_filter = f"AND {where_extra}" if where_extra else ""
     cursor.execute(f"""
         SELECT {select_parts}
         FROM {table_name}
         WHERE date_format(transaction_date, "%Y-%m-%d") BETWEEN '{start_date}' AND '{end_date}'
             {sources_filter}
+            {extra_filter}
     """)
     result = cursor.fetchone()
     conn.close()

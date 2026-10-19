@@ -175,7 +175,7 @@ def send_mitra_dwh_teams_report_duplicate_flow(
                     "Run mode datalake_only: Data Lake cleaned, DWH summary tables intentionally NOT reloaded "
                     "(run dwh_only to rebuild them)."
                     if datalake_only
-                    else "The five DWH summary tables are being reloaded automatically after duplicate removal.",
+                    else "The DWH summary tables are being reloaded automatically after duplicate removal.",
                     is_subtle=True,
                     spacing="Small",
                 ),
