@@ -10,7 +10,7 @@ SUMMARY_COLS = ['total_collected', 'total_order']
 
 
 def run_daily_transactions(start_date, end_date, config_dw):
-    print("  [3/5] daily_transaction_summary_iseller_pusat")
+    print("  [3/6] daily_transaction_summary_iseller_pusat")
 
     # BEFORE summary
     before = get_summary_before(config_dw, TABLE_NAME, SUMMARY_COLS, start_date, end_date, sources='iseller_mitra')

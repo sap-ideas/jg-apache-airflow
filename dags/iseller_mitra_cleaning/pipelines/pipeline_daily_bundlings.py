@@ -10,7 +10,7 @@ SUMMARY_COLS = ['total_amount', 'quantity']
 
 
 def run_daily_bundlings(start_date, end_date, config_dw):
-    print("  [2/5] daily_bundling_summary_iseller_pusat")
+    print("  [2/6] daily_bundling_summary_iseller_pusat")
 
     # BEFORE summary
     before = get_summary_before(config_dw, TABLE_NAME, SUMMARY_COLS, start_date, end_date, sources='iseller_mitra')
