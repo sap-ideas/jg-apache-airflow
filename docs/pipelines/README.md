@@ -12,6 +12,7 @@ Untuk cara mengelola Airflow Variables & secrets, lihat
 |---|---|---|---|
 | [iseller_pusat_fulfillment](./iseller_pusat_fulfillment.md) | `etl_iseller_pusat_fulfillment` | `0 9 * * *` (09:00) | Backfill unfulfilled orders via iSeller API, lalu redump 8 tabel summary DWH |
 | [iseller_pusat_backfilling](./iseller_pusat_backfilling.md) | `etl_iseller_pusat_backfilling` | `50 1 * * *` (01:50) | Backfilling order H-8 s/d H-7 yang tidak ada di Data Lake (ingest tidak menariknya), Data Lake only |
+| [iseller_mitra_backfilling](./iseller_mitra_backfilling.md) | `etl_iseller_mitra_backfilling` | `10 6 * * *` (06:10) | Backfilling order Mitra H-8 s/d H-7 yang tidak ada di Data Lake (ingest tidak menariknya), Data Lake only |
 | [iseller_mitra_fulfillment](./iseller_mitra_fulfillment.md) | `etl_iseller_mitra_fulfillment` | `0 8 * * *` (08:00) | Backfill unfulfilled orders Mitra via iSeller API ke Data Lake (tanpa redump DWH) |
 | [iseller_mitra_cleaning](./iseller_mitra_cleaning.md) | `etl_iseller_mitra_cleaning` | `30 8 * * *` (08:30, menunggu `etl_iseller_mitra_fulfillment` selesai) | Deteksi & bersihkan duplikat di Data Lake, redump 5 tabel summary secara selektif |
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `etl_sejutajiwa_riders_ksj_link_mapping` | `0 8 * * *` (08:00) | Mapping rider→hub dari KSJ Link, insert ke MySQL Lake+DWH |
