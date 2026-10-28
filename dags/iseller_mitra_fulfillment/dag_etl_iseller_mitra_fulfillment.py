@@ -3,7 +3,7 @@ DAG: ETL iSeller Mitra - Backfill Fulfillment (Data Lake only)
 Detects unfulfilled orders, re-pulls from iSeller Mitra API, updates Data Lake,
 then sends email + Teams report. DWH summary tables are NOT re-dumped by this DAG.
 
-Ordering: this DAG runs first (08:00). etl_iseller_mitra_cleaning (08:30) waits until this DAG
+Ordering: this DAG runs first (07:50). etl_iseller_mitra_cleaning (07:51) waits until this DAG
 has finished, because cleaning dedups transactions_items_iseller_mitra (DELETE + re-dump) and
 must never run while this DAG is writing to the same Data Lake tables.
 """
@@ -87,7 +87,7 @@ with DAG(
     dag_id="etl_iseller_mitra_fulfillment",
     default_args=default_args,
     description="ETL iSeller Mitra: Backfill fulfillment ke Data Lake (tanpa redump DWH), jalan sebelum Mitra cleaning",
-    schedule_interval="0 8 * * *",
+    schedule_interval="50 7 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "fulfillment", "datalake", "production"],

@@ -8,7 +8,7 @@ Beda dengan [`iseller_mitra_fulfillment`](./iseller_mitra_fulfillment.md): fulfi
 sudah ada di header dengan `fulfillment_status = 'none'`. Backfilling ini mengisi order yang belum punya header sama sekali.
 Tabel summary DWH tidak disentuh (sama dengan `etl_iseller_mitra_fulfillment`): setelah backfilling memasukkan order, redump manual lewat `etl_iseller_mitra_cleaning` dengan `run_mode = dwh_only` untuk tanggal yang sama.
 
-**Urutan dengan DAG lain**: jalan 06:10, setelah ingest harian (~06:08, menulis H-1) dan sebelum `etl_iseller_mitra_fulfillment` (08:00) dan `etl_iseller_mitra_cleaning` (08:30). DAG ini menulis H-8 s/d H-7, jadi tidak beririsan dengan ingest harian. Fulfillment dan cleaning **tidak menunggu** DAG ini; run biasanya selesai dalam hitungan menit, tapi jangan trigger manual yang panjang di sekitar 08:00-09:00.
+**Urutan dengan DAG lain**: jalan 06:10, setelah ingest harian (~06:08, menulis H-1) dan sebelum `etl_iseller_mitra_fulfillment` (07:50) dan `etl_iseller_mitra_cleaning` (07:51). DAG ini menulis H-8 s/d H-7, jadi tidak beririsan dengan ingest harian. Fulfillment dan cleaning **tidak menunggu** DAG ini; run biasanya selesai dalam hitungan menit, tapi jangan trigger manual yang panjang di sekitar 08:00-09:00.
 
 ## Metadata DAG
 
