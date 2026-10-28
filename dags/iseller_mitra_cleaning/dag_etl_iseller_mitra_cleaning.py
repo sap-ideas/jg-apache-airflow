@@ -4,7 +4,7 @@ Checks for duplicated data in Data Lake, cleans if needed,
 then re-dumps all 5 DWH summary tables from cleaned Data Lake.
 Sends email notifications at each stage.
 
-Scheduled runs wait until etl_iseller_mitra_fulfillment (08:00) has finished (success or failed):
+Scheduled runs wait until etl_iseller_mitra_fulfillment (07:50) has finished (success or failed):
 fulfillment appends to transactions_items_iseller_mitra, and cleaning must not DELETE + re-dump
 that table while fulfillment is still writing to it.
 """
@@ -51,8 +51,11 @@ def _target_date_yesterday_jakarta(**context):
     return jakarta.subtract(days=1).to_date_string()
 
 MITRA_FULFILLMENT_DAG_ID = "etl_iseller_mitra_fulfillment"
-# Fulfillment jalan 08:00, DAG ini 08:30 -> logical date fulfillment 30 menit SEBELUM logical date DAG ini
-FULFILLMENT_RUNS_BEFORE_THIS = timedelta(minutes=30)
+# Fulfillment jalan 07:50, DAG ini 07:51 -> logical date fulfillment 1 menit SEBELUM logical date DAG ini.
+# DAG ini sengaja dijadwalkan tepat setelah fulfillment mulai: sensor yang menentukan kapan benar-benar jalan
+# (begitu fulfillment selesai). Kalau salah satu jadwal diubah, ubah selisih ini juga
+# (kalau tidak, sensor menunggu run yang tidak pernah ada)
+FULFILLMENT_RUNS_BEFORE_THIS = timedelta(minutes=1)
 
 
 def _mitra_fulfillment_finished(dag_run, logical_date, **_):
@@ -113,7 +116,7 @@ with DAG(
     dag_id="etl_iseller_mitra_cleaning",
     default_args=default_args,
     description="ETL iSeller Mitra: Check duplicates, clean DL, re-dump 5 DWH summary tables",
-    schedule_interval="30 8 * * *",
+    schedule_interval="51 7 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "dwh", "production"],

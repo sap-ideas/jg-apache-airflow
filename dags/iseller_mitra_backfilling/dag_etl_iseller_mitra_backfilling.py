@@ -4,7 +4,7 @@ Menarik ulang order H-8 s/d H-7 dari iSeller API dan memasukkan order yang TIDAK
 (ingest harian tidak menariknya). Berbeda dengan etl_iseller_mitra_fulfillment yang hanya memperbaiki order
 fulfillment_status='none'. Tabel summary DWH tidak disentuh (redump manual lewat etl_iseller_mitra_cleaning dwh_only).
 
-Jalan 06:10 WIB (setelah ingest harian ~06:08, sebelum fulfillment 08:00 dan cleaning 08:30). Idempoten: order yang sudah ada tidak dimasukkan lagi, jadi retry / trigger ulang aman.
+Jalan 06:10 WIB (setelah ingest harian ~06:08, sebelum fulfillment 07:50 dan cleaning 07:51). Idempoten: order yang sudah ada tidak dimasukkan lagi, jadi retry / trigger ulang aman.
 """
 from airflow import DAG
 from airflow.models.param import Param

@@ -12,7 +12,7 @@ File: `dag_etl_iseller_mitra_fulfillment.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_mitra_fulfillment` |
-| `schedule_interval` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
+| `schedule_interval` | `"50 7 * * *"` — harian 07:50 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |
@@ -25,10 +25,10 @@ File: `dag_etl_iseller_mitra_fulfillment.py`
 Pusat. Trigger manual memakai `start_date`/`end_date` dari form (isi awal = window terjadwal; start
 setelah end ditolak). Tidak ada `run_mode` karena DAG ini memang tidak menyentuh DWH.
 
-**Urutan dengan DAG lain**: DAG ini jalan duluan (08:00). [`etl_iseller_mitra_cleaning`](./iseller_mitra_cleaning.md)
-(08:30) menunggu run terjadwal DAG ini selesai (sukses atau gagal), karena cleaning melakukan DELETE +
+**Urutan dengan DAG lain**: DAG ini jalan duluan (07:50). [`etl_iseller_mitra_cleaning`](./iseller_mitra_cleaning.md)
+(07:51) menunggu run terjadwal DAG ini selesai (sukses atau gagal), karena cleaning melakukan DELETE +
 re-dump `transactions_items_iseller_mitra` — tabel yang sama yang di-append DAG ini. Sensor cleaning
-**tidak** mengenali run dari notebook manual, jadi jangan jalankan notebook di sekitar 08:00 sampai
+**tidak** mengenali run dari notebook manual, jadi jangan jalankan notebook di sekitar 07:50 sampai
 cleaning selesai (atau pause DAG cleaning dulu). Trigger manual lewat Airflow UI aman: karena
 `max_active_runs=1`, run terjadwal ikut antre dan cleaning menunggu sampai selesai.
 

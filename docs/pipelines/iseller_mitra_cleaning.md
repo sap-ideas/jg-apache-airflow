@@ -17,14 +17,14 @@ File: `dag_etl_iseller_mitra_cleaning.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_mitra_cleaning` |
-| `schedule_interval` | `"30 8 * * *"` — harian 08:30 Asia/Jakarta |
+| `schedule_interval` | `"51 7 * * *"` — harian 07:51 Asia/Jakarta (1 menit setelah fulfillment mulai; jalan sungguhan begitu fulfillment selesai, lihat Urutan) |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |
 | `tags` | `["etl", "iseller", "mitra", "dwh", "production"]` |
 | `default_args` | sama dengan DAG lain — `owner='data-team'`, `retries=2`, `retry_delay=5 menit` |
 | Task | `PythonSensor("wait_mitra_fulfillment")` → `PythonOperator("run_pipeline")` |
-| Urutan | Run terjadwal menunggu `etl_iseller_mitra_fulfillment` (08:00) selesai, sukses atau gagal, karena fulfillment menulis ke `transactions_items_iseller_mitra` dan cleaning tidak boleh DELETE + re-dump tabel itu bersamaan. Tidak menunggu kalau trigger manual atau DAG fulfillment paused / tidak ada. Timeout tunggu 4 jam (lewat itu sensor gagal, cleaning hari itu tidak jalan). |
+| Urutan | Run terjadwal menunggu `etl_iseller_mitra_fulfillment` (07:50) selesai, sukses atau gagal, karena fulfillment menulis ke `transactions_items_iseller_mitra` dan cleaning tidak boleh DELETE + re-dump tabel itu bersamaan. Dijadwalkan 07:51 supaya tidak ada jeda: sensor mengecek tiap 60 detik, jadi cleaning mulai begitu fulfillment selesai (bisa sebelum 08:00), dan kalau fulfillment belum selesai cleaning terus menunggu. Tidak menunggu kalau trigger manual atau DAG fulfillment paused / tidak ada. Timeout tunggu 4 jam (lewat itu sensor gagal, cleaning hari itu tidak jalan). |
 | Param | `run_mode`: `full` (default, run terjadwal) / `datalake_only` (cek + bersihkan DL saja, DWH tidak disentuh) / `dwh_only` (skip DL, re-dump 6 tabel DWH). Dipilih saat Trigger DAG w/ config |
 
 **Date window**: `start_date == end_date` = "kemarin" di Asia/Jakarta (single-day window, beda dari `iseller_pusat_fulfillment` yang rolling 9 hari).

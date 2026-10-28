@@ -191,8 +191,8 @@ Parameter yang bisa diatur:
 
 ## iSeller Mitra Fulfillment — Ringkas
 
-DAG `etl_iseller_mitra_fulfillment` (08:00): backfill order Mitra yang masih unfulfilled lewat API
-iSeller ke Data Lake, **tanpa redump DWH**. DAG `etl_iseller_mitra_cleaning` (08:30) menunggu DAG ini
+DAG `etl_iseller_mitra_fulfillment` (07:50): backfill order Mitra yang masih unfulfilled lewat API
+iSeller ke Data Lake, **tanpa redump DWH**. DAG `etl_iseller_mitra_cleaning` (07:51) menunggu DAG ini
 selesai. Token: `access_token_mitra`.
 
 Manual run: **Trigger DAG w/ config** (isi `start_date`/`end_date`, pecah per bulan untuk periode
