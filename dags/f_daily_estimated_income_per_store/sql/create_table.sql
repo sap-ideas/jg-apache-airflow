@@ -1,63 +1,35 @@
 -- ============================================================
 -- Table: daily_est_income_per_store_for_landlord
--- Database: MySQL Data Warehouse (config_dw.db_target)
+-- Database: MySQL Data Warehouse (config_dw.db_target)  -- MySQL 5.7
 -- Written by: dags/f_daily_estimated_income_per_store/pipelines/load.py
 --   DELETE FROM daily_est_income_per_store_for_landlord WHERE date = :d
 --   then to_sql(if_exists='append') — overwrite-per-date, safe to retry.
+-- Read by: dags/api_integration_landlord_00570 (extract.py)
+--
+-- Format long: satu baris per date + outlet + payment_type.
+-- Payment type baru TIDAK perlu kolom baru (cukup entry di transform.py).
+-- Nominal yang dibagi ke landlord = subtotal - sales_type_commission
+-- (dihitung saat dipakai, tidak disimpan).
+--
+-- Referensi schema: dijalankan manual di DBeaver (lihat migrate_wide_to_long.sql
+-- untuk urutan cutover dari format wide lama).
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS daily_est_income_per_store_for_landlord (
-    date DATE NOT NULL,
-    outlet_code VARCHAR(20) NOT NULL,
-    outlet_name VARCHAR(255) NULL,
-    net_sales DECIMAL(18,2) NOT NULL DEFAULT 0,
-    tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
-    total_sales DECIMAL(18,2) NOT NULL DEFAULT 0,
+CREATE TABLE daily_est_income_per_store_for_landlord (
+    `date` DATE NOT NULL,
+    outlet_code VARCHAR(10) NOT NULL,
+    outlet_name VARCHAR(150) NULL,
+    payment_type VARCHAR(100) NOT NULL COMMENT 'Payment type resmi (mis. Go Food, iSeller QRIS); yang belum dikenal = nama asli dari iSeller',
 
-    cash DECIMAL(18,2) NOT NULL DEFAULT 0,
-    cash_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    cash_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
+    subtotal DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Net sales (SUM subtotal)',
+    tax_amount DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Pajak (SUM total_tax_amount, apa adanya dari iSeller)',
+    total_sales DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Gross sales (SUM total_amount)',
+    sales_type_commission DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Komisi payment type dalam rupiah = subtotal x pct (tidak dibulatkan di kode)',
 
-    bri DECIMAL(18,2) NOT NULL DEFAULT 0,
-    bri_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    bri_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
+    load_data_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    load_data_by VARCHAR(250) NULL,
 
-    go_food DECIMAL(18,2) NOT NULL DEFAULT 0,
-    go_food_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    go_food_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    grab_food DECIMAL(18,2) NOT NULL DEFAULT 0,
-    grab_food_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    grab_food_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    grab_dine_out DECIMAL(18,2) NOT NULL DEFAULT 0,
-    grab_dine_out_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    grab_dine_out_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    shopee_food DECIMAL(18,2) NOT NULL DEFAULT 0,
-    shopee_food_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    shopee_food_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    tokopedia_go DECIMAL(18,2) NOT NULL DEFAULT 0,
-    tokopedia_go_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    tokopedia_go_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    jiwaplus DECIMAL(18,2) NOT NULL DEFAULT 0,
-    jiwaplus_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    jiwaplus_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    iseller_qris DECIMAL(18,2) NOT NULL DEFAULT 0,
-    iseller_qris_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    iseller_qris_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    qpon DECIMAL(18,2) NOT NULL DEFAULT 0,
-    qpon_subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
-    qpon_commission DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    total_commission_cost DECIMAL(18,2) NOT NULL DEFAULT 0,
-
-    load_data_at DATETIME NOT NULL,
-    load_data_by VARCHAR(100) NOT NULL DEFAULT 'NEXUS_AIRFLOW',
-
-    UNIQUE KEY uq_date_outlet (date, outlet_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    UNIQUE KEY uq_date_outlet_payment (`date`, outlet_code, payment_type),
+    KEY idx_outlet_date (outlet_code, `date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='Daily estimated income per store per payment type for landlord (est. income = subtotal - sales_type_commission)';

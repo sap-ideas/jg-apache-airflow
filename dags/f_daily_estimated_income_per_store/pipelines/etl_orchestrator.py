@@ -3,7 +3,7 @@
 Flow:
   1. Extract  raw transactions per outlet/payment_type for one target date
      (extract.py)
-  2. Transform into channel/commission columns, one row per outlet
+  2. Transform into one row per outlet/payment_type with commission
      (transform.py)
   3. Load     atomic DELETE + INSERT for the target date (load.py)
   4. Send a single email report with row counts & timing
@@ -20,7 +20,7 @@ from email.mime.text import MIMEText
 from pytz import timezone
 
 from extract import extract_transactions
-from transform import build_daily_income_summary
+from transform import build_daily_income_summary, find_unmapped_payment_types
 from load import load_daily_income, TARGET_TABLE
 
 SMTP_SERVER    = "smtp.gmail.com"
@@ -125,6 +125,12 @@ def run_all(config_dw, target_date_str=None):
         df_summary = build_daily_income_summary(df_raw)
         print(f"        daily_summary     : {len(df_summary):>6} rows  ({time.time() - t0:.1f}s)")
 
+        df_unmapped = find_unmapped_payment_types(df_summary)
+        if not df_unmapped.empty:
+            print("        WARNING payment type belum ada di PAYMENT_TYPE_MAP / COMMISSION_PCT (komisi dianggap 0):")
+            for _, r in df_unmapped.iterrows():
+                print(f"          - {r['payment_type']}: total_sales {r['total_sales']:,.0f}")
+
         # ---- STEP 3: LOAD ----
         print("\n  [3/3] LOAD")
 
@@ -149,6 +155,10 @@ def run_all(config_dw, target_date_str=None):
             f"{TARGET_TABLE} (overwrite -del/+ins)": f"-{deleted:,} / +{inserted:,}",
             "total_time":                       f"{total_elapsed:.1f}s",
         }
+        if not df_unmapped.empty:
+            stats["WARNING payment type belum dikenal (komisi 0)"] = "; ".join(
+                f"{r['payment_type']} ({r['total_sales']:,.0f})" for _, r in df_unmapped.iterrows()
+            )
 
         try:
             _send_report_email(target_date_str, stats)

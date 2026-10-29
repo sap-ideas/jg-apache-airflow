@@ -89,8 +89,9 @@ def get_access_token(jilid: str = JILID) -> str:
 def extract_sales(config_dw, start_date_str: str, end_date_str: str) -> pd.DataFrame:
     """Query estimated income per store for jilid 00570 from the Data Warehouse.
 
-    Source table `daily_est_income_per_store_for_landlord` is built by the
-    `f_daily_estimated_income_per_store` DAG (overwrite-per-date), which triggers this DAG.
+    Source table `daily_est_income_per_store_for_landlord` (one row per date / outlet /
+    payment_type) is built by the `f_daily_estimated_income_per_store` DAG
+    (overwrite-per-date), which triggers this DAG.
 
     Args:
         config_dw:        Data Warehouse config module.
@@ -98,12 +99,13 @@ def extract_sales(config_dw, start_date_str: str, end_date_str: str) -> pd.DataF
         end_date_str:     'YYYY-MM-DD' range end   (typically yesterday).
 
     Returns:
-        DataFrame: one row per date with the wide channel columns
-        (<channel>, <channel>_subtotal, <channel>_commission).
+        DataFrame: one row per date + payment type with columns
+        date, outlet_code, payment_type, subtotal, tax_amount, total_sales, sales_type_commission.
     """
     conn = get_connection(config_dw, config_dw.db_target)
     query = f"""
-        SELECT *
+        SELECT date, outlet_code, payment_type,
+               subtotal, tax_amount, total_sales, sales_type_commission
         FROM {SOURCE_TABLE}
         WHERE outlet_code = %s
             AND date BETWEEN %s AND %s
