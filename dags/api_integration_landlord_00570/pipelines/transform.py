@@ -1,32 +1,42 @@
-"""Transform functions — unpivot wide est-income columns and build the revenue payload columns."""
+"""Transform functions — build the revenue payload columns from est-income rows (one per payment type)."""
 
 from datetime import datetime
 
 import pandas as pd
 
-# column prefix in daily_est_income_per_store_for_landlord -> PaymentType label sent to the landlord
-CHANNEL_LABELS = {
-    'cash':          'Cash',
-    'bri':           'BRI',
-    'go_food':       'Go Food',
-    'grab_food':     'Grab Food',
-    'grab_dine_out': 'Grab Dine Out',
-    'shopee_food':   'Shopee Food',
-    'tokopedia_go':  'Tokopedia Go',
-    'jiwaplus':      'Jiwa+',
-    'iseller_qris':  'iSeller QRIS',
-    'qpon':          'QPON',
-}
+# payment type resmi yang boleh dikirim ke landlord (label = PaymentType di payload & api_landlord_log_detail).
+# Payment type lain di table (belum resmi) tidak dikirim; lihat find_unsent_payment_types.
+SENDABLE_PAYMENT_TYPES = [
+    'Cash', 'BRI', 'Go Food', 'Grab Food', 'Grab Dine Out', 'Shopee Food',
+    'Tokopedia Go', 'Jiwa+', 'iSeller QRIS', 'Mandiri QRIS', 'QPON',
+]
+
+
+def find_unsent_payment_types(df_est_income: pd.DataFrame) -> pd.DataFrame:
+    """Payment type di est-income yang ada transaksinya tapi bukan SENDABLE_PAYMENT_TYPES.
+
+    Returns:
+        DataFrame [payment_type, total_sales] (kosong kalau semua payment type dikirim).
+    """
+    if df_est_income.empty:
+        return pd.DataFrame(columns=['payment_type', 'total_sales'])
+    unsent = df_est_income[
+        ~df_est_income['payment_type'].isin(SENDABLE_PAYMENT_TYPES) & (df_est_income['total_sales'] != 0)
+    ]
+    return (
+        unsent.groupby('payment_type', as_index=False)['total_sales'].sum()
+        .sort_values('payment_type').reset_index(drop=True)
+    )
 
 
 def transform_sales(df_est_income: pd.DataFrame, run_timestamp: datetime) -> pd.DataFrame:
-    """Unpivot channel columns into one row per (date, payment type) and build the API payload columns.
+    """Build the landlord API payload columns, one row per (date, payment type).
 
-    Per channel:
-        TotalSales = <channel>
-        TotalTax   = <channel> - <channel>_subtotal
-        Amount     = <channel>_subtotal - <channel>_commission   (est. income shared to landlord)
-    Channels with zero sales that day are dropped (they never appear in the payload).
+    Per payment type:
+        TotalSales = total_sales
+        TotalTax   = tax_amount
+        Amount     = subtotal - sales_type_commission   (est. income shared to landlord)
+    Payment types outside SENDABLE_PAYMENT_TYPES and rows with zero sales are dropped.
 
     Args:
         df_est_income: output of extract.extract_sales
@@ -47,37 +57,29 @@ def transform_sales(df_est_income: pd.DataFrame, run_timestamp: datetime) -> pd.
     if df_est_income.empty:
         return pd.DataFrame(columns=_COLUMNS)
 
-    rows = []
-    for col, label in CHANNEL_LABELS.items():
-        tmp = df_est_income[['outlet_code', 'date']].copy()
-        tmp['date']        = tmp['date'].astype(str)
-        tmp['payment_type'] = label
-        tmp['total_sales'] = df_est_income[col]
-        tmp['total_tax']   = df_est_income[col] - df_est_income[f'{col}_subtotal']
-        tmp['est_income']  = df_est_income[f'{col}_subtotal'] - df_est_income[f'{col}_commission']
-        rows.append(tmp)
-
-    sales = pd.concat(rows, ignore_index=True).rename(
-        columns={'outlet_code': 'jilid', 'date': 'transaction_date'}
-    )
-    sales['jilid'] = sales['jilid'].astype(str)
-    sales = sales[sales['total_sales'] != 0]
+    sales = df_est_income[
+        df_est_income['payment_type'].isin(SENDABLE_PAYMENT_TYPES) & (df_est_income['total_sales'] != 0)
+    ].copy()
 
     if sales.empty:
         return pd.DataFrame(columns=_COLUMNS)
 
+    sales['jilid']       = sales['outlet_code'].astype(str)
+    sales['date']        = sales['date'].astype(str)
+    sales['est_income']  = sales['subtotal'] - sales['sales_type_commission']
+
     final_data = (
         sales
-        .groupby(['jilid', 'transaction_date', 'payment_type'])
+        .groupby(['jilid', 'date', 'payment_type'])
         .agg(
             TotalSales=('total_sales', 'sum'),
-            TotalTax=('total_tax', 'sum'),
+            TotalTax=('tax_amount', 'sum'),
             Amount=('est_income', 'sum'),
         )
         .reset_index()
         .rename(columns={
-            'transaction_date': 'TransactionDate',
-            'payment_type':     'PaymentType',
+            'date':         'TransactionDate',
+            'payment_type': 'PaymentType',
         })
     )
 

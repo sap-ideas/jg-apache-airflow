@@ -1,8 +1,10 @@
 # `f_daily_estimated_income_per_store` — Estimasi Uang Masuk Harian Per Store (untuk Landlord)
 
 Menghitung estimasi uang masuk harian per outlet dari transaksi iSeller Pusat,
-dipecah per payment channel dan dikurangi commission cost masing-masing channel,
-untuk keperluan pelaporan ke landlord.
+dipecah per payment type (satu baris per date + outlet + payment_type) dengan
+commission masing-masing payment type, untuk keperluan pelaporan ke landlord.
+Nominal yang dibagi ke landlord (`subtotal - sales_type_commission`) tidak disimpan,
+dihitung saat dipakai (mis. oleh `api_landlord_revenue_sharing_00570`).
 
 ## Metadata DAG
 
@@ -31,12 +33,15 @@ EXTRACT (extract.py :: extract_transactions)
   total_amount/total_tax_amount/subtotal per date+outlet+payment_type
 
 TRANSFORM (transform.py :: build_daily_income_summary)
-  map_channel(): payment_type mentah -> channel tetap (PAYMENT_TYPE_TO_CHANNEL),
-    fallback 'null_payment' (payment_type NULL) / 'other' (tidak dikenal)
-  Aggregate ulang per date+outlet+channel, lalu pivot jadi wide: 1 baris per
-  date+outlet, kolom per channel (<channel>, <channel>_subtotal,
-  <channel>_commission = subtotal * COMMISSION_PCT[channel])
-  total_commission_cost = jumlah semua *_commission
+  map_payment_type(): payment_type mentah -> payment type resmi (PAYMENT_TYPE_MAP,
+    tidak sensitif huruf besar/kecil), NULL -> 'Unknown'; yang belum dikenal tetap
+    disimpan dengan nama aslinya & komisi 0 (total per outlet-hari selalu cocok dengan sumber)
+  Aggregate per date+outlet+payment_type (format long, 1 baris per payment type):
+    subtotal, tax_amount (SUM total_tax_amount apa adanya dari iSeller), total_sales,
+    sales_type_commission = subtotal * COMMISSION_PCT[payment_type] (tidak dibulatkan di kode;
+      kolom DECIMAL(20,4) membatasi 4 desimal. Amount dibulatkan 4 desimal saat kirim ke landlord)
+  find_unmapped_payment_types(): payment type tanpa komisi resmi -> warning di log & email
+  Payment type baru = tambah entry di PAYMENT_TYPE_MAP & COMMISSION_PCT (tanpa kolom baru)
 
 LOAD (load.py :: load_daily_income)
   Atomic DELETE + INSERT (engine.begin()) ke MySQL DWH:
@@ -64,10 +69,12 @@ NOTIFIKASI (_send_report_email, inline di etl_orchestrator.py)
 ## Pola Kode Khas
 
 - Struktur 4-langkah penuh: `extract.py` → `transform.py` → `load.py` → email inline di `etl_orchestrator.py`.
-- `OUTLET_CODES` (extract.py) dan rules komisi (`PAYMENT_TYPE_TO_CHANNEL`, `COMMISSION_PCT`, `CHANNEL_ORDER` di transform.py) sengaja dipisah dari SQL supaya gampang diubah tanpa nyentuh query.
+- `OUTLET_CODES` (extract.py) dan rules komisi (`PAYMENT_TYPE_MAP`, `COMMISSION_PCT` di transform.py) sengaja dipisah dari SQL supaya gampang diubah tanpa nyentuh query.
 - Print-based progress logging dengan banner `"[N/3] STEP_NAME"` dan timer elapsed via `time.time()`.
 - Try/except membungkus seluruh `run_all`; kalau exception, print + kirim email FAILED (merah), lalu di-raise ulang supaya Airflow tetap menandai gagal dan retry sesuai `default_args`.
 
 ## Manual Run
 
-Ada notebook `dags/f_daily_estimated_income_per_store/daily_est_income_per_store_for_landlord.ipynb` sebagai precursor/dev notebook (support custom date range lewat `USE_CUSTOM_DATE_RANGE`).
+Ada notebook `dags/f_daily_estimated_income_per_store/daily_est_income_per_store_for_landlord.ipynb` sebagai precursor/dev notebook (support custom date range lewat `USE_CUSTOM_DATE_RANGE`; DELETE range lalu INSERT dalam satu transaksi, `load_data_by` = email operator). Dipakai juga untuk backfill histori setelah cutover ke format long.
+
+Migrasi dari format wide lama ke long: `sql/migrate_wide_to_long.sql` (dijalankan manual di DBeaver: rename tabel lama jadi `_old`, buat tabel baru, backfill via notebook, query rekonsiliasi).

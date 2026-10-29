@@ -1,107 +1,110 @@
-"""Transform functions - map payment_type to channel, compute commission, aggregate per outlet."""
+"""Transform functions - map raw payment_type to the official payment type, compute commission per payment type."""
 
 import pandas as pd
 
-# mapping raw payment_type_name (dari DB) -> nama channel yang dipakai di perhitungan
-PAYMENT_TYPE_TO_CHANNEL = {
-    "Cash": "cash",
-    "BRI": "bri",
-    "Go Food": "go_food",
-    "Grab Food": "grab_food",
-    "Grab Dine Out": "grab_dine_out",
-    "Shopee Food": "shopee_food",
-    "Tokopedia Go": "tokopedia_go",
-    "Jiwa+": "jiwaplus",
-    "iSellerpay (Sejutajiwariders)": "iseller_qris",
-    "iSeller Pay QRIS": "iseller_qris",
-    "QPON": "qpon",
+# mapping raw transactions_payment_type_name (dari DB) -> payment type resmi.
+# Label resmi ini juga yang dikirim ke landlord & dicatat di api_landlord_log_detail.payment_type.
+# Tambah payment type baru = tambah entry di PAYMENT_TYPE_MAP & COMMISSION_PCT (tidak perlu ubah table).
+PAYMENT_TYPE_MAP = {
+    "Cash": "Cash",
+    "BRI": "BRI",
+    "Go Food": "Go Food",
+    "Grab Food": "Grab Food",
+    "Grab Dine Out": "Grab Dine Out",
+    "Shopee Food": "Shopee Food",
+    "Tokopedia Go": "Tokopedia Go",
+    "Jiwa+": "Jiwa+",
+    "iSellerpay (Sejutajiwariders)": "iSeller QRIS",
+    "iSeller Pay QRIS": "iSeller QRIS",
+    "isellerpay_qris": "iSeller QRIS",
+    "Mandiri QRIS": "Mandiri QRIS",
+    "QPON": "QPON",
 }
-NULL_PAYMENT_CHANNEL = "null_payment"
-OTHER_PAYMENT_CHANNEL = "other"
+UNKNOWN_PAYMENT_TYPE = "Unknown"  # raw payment_type NULL
 
-# besaran commission cost per channel (pct dari subtotal / net sales)
+# besaran commission cost per payment type resmi (pct dari subtotal / net sales)
 COMMISSION_PCT = {
-    "cash": 0.0,
-    "bri": 0.0,
-    "go_food": 0.16,
-    "grab_food": 0.15,
-    "grab_dine_out": 0.15,
-    "shopee_food": 0.15,
-    "tokopedia_go": 0.07,
-    "jiwaplus": 0.0,
-    "iseller_qris": 0.007,
-    "qpon": 0.05,
+    "Cash": 0.0,
+    "BRI": 0.0,          # all banks
+    "Go Food": 0.16,
+    "Grab Food": 0.15,
+    "Grab Dine Out": 0.15,
+    "Shopee Food": 0.15,
+    "Tokopedia Go": 0.07,
+    "Jiwa+": 0.0,
+    "iSeller QRIS": 0.007,
+    "Mandiri QRIS": 0.0,
+    "QPON": 0.05,
 }
 
-CHANNEL_ORDER = [
-    "cash", "bri", "go_food", "grab_food", "grab_dine_out", "shopee_food",
-    "tokopedia_go", "jiwaplus", "iseller_qris", "qpon",
+SUMMARY_COLUMNS = [
+    "date", "outlet_code", "outlet_name", "payment_type",
+    "subtotal", "tax_amount", "total_sales", "sales_type_commission",
 ]
 
+# lookup tidak sensitif huruf besar/kecil & spasi di pinggir (kolom di MySQL juga case-insensitive)
+_NORMALIZED_MAP = {k.strip().casefold(): v for k, v in PAYMENT_TYPE_MAP.items()}
 
-def map_channel(payment_type):
-    if pd.isna(payment_type):
-        return NULL_PAYMENT_CHANNEL
-    return PAYMENT_TYPE_TO_CHANNEL.get(payment_type, OTHER_PAYMENT_CHANNEL)
+
+def map_payment_type(raw_payment_type):
+    """Raw payment type -> payment type resmi. Yang belum dikenal dikembalikan apa adanya (tanpa spasi pinggir)."""
+    if pd.isna(raw_payment_type):
+        return UNKNOWN_PAYMENT_TYPE
+    raw = str(raw_payment_type).strip()
+    return _NORMALIZED_MAP.get(raw.casefold(), raw)
 
 
 def build_daily_income_summary(df_raw):
-    """One row per date+outlet, with total_amount/subtotal/commission per channel.
+    """One row per date + outlet + payment type, with subtotal / tax / total sales / commission.
+
+    Nominal yang dibagi ke landlord (subtotal - sales_type_commission) sengaja tidak disimpan.
+    Payment type yang belum ada di PAYMENT_TYPE_MAP tetap disimpan (nama aslinya, komisi 0)
+    supaya total per outlet-hari selalu cocok dengan sumber; lihat find_unmapped_payment_types.
 
     Args:
         df_raw: output of extract.extract_transactions
 
     Returns:
-        DataFrame ready to be loaded into daily_est_income_per_store_for_landlord.
+        DataFrame with SUMMARY_COLUMNS, ready to be loaded into daily_est_income_per_store_for_landlord.
     """
-    df = df_raw.copy()
-    df["channel"] = df["payment_type"].apply(map_channel)
+    if df_raw.empty:
+        return pd.DataFrame(columns=SUMMARY_COLUMNS)
 
-    # agregasi per date, outlet, channel (jaga-jaga kalau ada raw payment_type yg beda tapi map ke channel sama)
-    grouped = (
-        df.groupby(["date", "outlet_code", "outlet_name", "channel"], as_index=False)
-        .agg(total_amount=("total_amount", "sum"),
-             total_tax_amount=("total_tax_amount", "sum"),
-             subtotal=("subtotal", "sum"))
+    df = df_raw.copy()
+    # MySQL SUM() balik sebagai Decimal -> float supaya bisa dikali pct
+    for col in ("total_amount", "total_tax_amount", "subtotal"):
+        df[col] = pd.to_numeric(df[col]).astype(float)
+
+    df["payment_type"] = df["payment_type"].apply(map_payment_type)
+    # kunci agregasi tidak sensitif huruf besar/kecil, selaras dengan UNIQUE KEY di table
+    df["_pt_key"] = df["payment_type"].str.casefold()
+
+    # agregasi per date, outlet, payment type (beberapa raw payment_type bisa map ke payment type yang sama)
+    result = (
+        df.groupby(["date", "outlet_code", "outlet_name", "_pt_key"], as_index=False, dropna=False)
+        .agg(payment_type=("payment_type", "first"),
+             subtotal=("subtotal", "sum"),
+             tax_amount=("total_tax_amount", "sum"),
+             total_sales=("total_amount", "sum"))
     )
 
-    # pivot jadi wide: satu baris per date+outlet, kolom per channel (total_amount & subtotal)
-    pivot_amount = grouped.pivot_table(index=["date", "outlet_code", "outlet_name"],
-                                        columns="channel", values="total_amount",
-                                        aggfunc="sum", fill_value=0)
-    pivot_subtotal = grouped.pivot_table(index=["date", "outlet_code", "outlet_name"],
-                                          columns="channel", values="subtotal",
-                                          aggfunc="sum", fill_value=0)
+    pct = result["payment_type"].map(COMMISSION_PCT).fillna(0.0)
+    # tidak dibulatkan di kode (kolom DECIMAL(20,4) yang membatasi 4 desimal); Amount dibulatkan 4 desimal saat kirim ke landlord
+    result["sales_type_commission"] = result["subtotal"] * pct
 
-    for ch in CHANNEL_ORDER:
-        if ch not in pivot_amount.columns:
-            pivot_amount[ch] = 0
-        if ch not in pivot_subtotal.columns:
-            pivot_subtotal[ch] = 0
+    return result[SUMMARY_COLUMNS].sort_values(["date", "outlet_code", "payment_type"]).reset_index(drop=True)
 
-    summary = grouped.groupby(["date", "outlet_code", "outlet_name"], as_index=False).agg(
-        net_sales=("subtotal", "sum"),
-        tax_amount=("total_tax_amount", "sum"),
-        total_sales=("total_amount", "sum"),
-    ).set_index(["date", "outlet_code", "outlet_name"])
 
-    result = summary.copy()
-    total_commission_cost = pd.Series(0.0, index=result.index)
+def find_unmapped_payment_types(df_summary):
+    """Payment type di summary yang belum punya komisi resmi (COMMISSION_PCT), per payment type.
 
-    # per channel cuma nyimpen: total_amount (raw), subtotal (net sales), commission
-    for ch in CHANNEL_ORDER:
-        pct = COMMISSION_PCT[ch]
-        amount = pivot_amount[ch]
-        sub = pivot_subtotal[ch]
-        commission = (sub * pct).round(2)
-
-        result[ch] = amount
-        result[f"{ch}_subtotal"] = sub
-        result[f"{ch}_commission"] = commission
-
-        total_commission_cost = total_commission_cost + commission
-
-    result["total_commission_cost"] = total_commission_cost.round(2)
-    result = result.reset_index().sort_values(["date", "outlet_code"])
-
-    return result
+    Returns:
+        DataFrame [payment_type, total_sales] (kosong kalau semua sudah dikenal).
+    """
+    if df_summary.empty:
+        return pd.DataFrame(columns=["payment_type", "total_sales"])
+    unmapped = df_summary[~df_summary["payment_type"].isin(COMMISSION_PCT)]
+    return (
+        unmapped.groupby("payment_type", as_index=False)["total_sales"].sum()
+        .sort_values("payment_type").reset_index(drop=True)
+    )

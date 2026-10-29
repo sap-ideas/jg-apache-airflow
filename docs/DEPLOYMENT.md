@@ -84,6 +84,12 @@ manual):
 
   **Kedua tabel di atas sudah dibuat & sudah di-dump data testing-nya di production**
   (dikonfirmasi tim data, 2026-09-22) — tidak perlu dijalankan ulang saat deploy.
+
+  **Pengecualian:** `daily_est_income_per_store_for_landlord` berubah dari format wide
+  (kolom per channel) ke format long (satu baris per date + outlet + payment_type).
+  Sebelum kode versi long dijalankan, tabel harus di-cutover manual sesuai
+  `dags/f_daily_estimated_income_per_store/sql/migrate_wide_to_long.sql` (pause DAG,
+  rename tabel lama, buat tabel baru, backfill via notebook, rekonsiliasi, unpause).
   Disimpan di sini sebagai referensi schema kalau perlu rebuild/restore di environment
   lain.
 

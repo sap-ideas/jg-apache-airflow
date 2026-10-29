@@ -22,7 +22,7 @@ from email.mime.text import MIMEText
 from pytz import timezone
 
 from extract import get_access_token, extract_sales
-from transform import transform_sales
+from transform import transform_sales, find_unsent_payment_types
 from load import (
     post_to_api, dump_logs, get_sent_payment_types,
     LOG_SUMMARY_TABLE, LOG_DETAIL_TABLE, DEFAULT_LOAD_DATA_BY,
@@ -183,6 +183,12 @@ def run_all(config_dw, start_date_str: str | None = None, end_date_str: str | No
         final_data = transform_sales(df_sales, run_now)
         print(f"        transform_sales   : {len(final_data):>6} rows  ({time.time() - t0:.1f}s)")
 
+        df_unsent = find_unsent_payment_types(df_sales)
+        if not df_unsent.empty:
+            print("        WARNING payment type belum resmi, TIDAK dikirim ke landlord:")
+            for _, r in df_unsent.iterrows():
+                print(f"          - {r['payment_type']}: total_sales {r['total_sales']:,.0f}")
+
         # ---- STEP 3+4: LOAD (POST TO API + DUMP LOGS), per tanggal ----
         print("\n  [3-4/4] LOAD — POST TO API + DUMP LOGS (per tanggal)")
 
@@ -263,6 +269,10 @@ def run_all(config_dw, start_date_str: str | None = None, end_date_str: str | No
             "api_error":                   f"{api_error:,}",
             "total_time":                  f"{total_elapsed:.1f}s",
         }
+        if not df_unsent.empty:
+            stats["WARNING tidak dikirim (payment type belum resmi)"] = "; ".join(
+                f"{r['payment_type']} ({r['total_sales']:,.0f})" for _, r in df_unsent.iterrows()
+            )
         for d, r in results.items():
             if r["status"] in ("SUCCESS", "API_ERROR"):
                 detail = (f"{r['status']} | sent {r['records_sent']} | success {r['api_success']} | "
