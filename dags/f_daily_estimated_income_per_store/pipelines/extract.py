@@ -5,7 +5,7 @@ import pandas as pd
 from common.db_helpers import get_connection
 
 # outlet yang mau dihitung uang masuknya
-OUTLET_CODES = ["00570", "00989"]
+OUTLET_CODES = ["00570", "00989", "01165"]
 
 
 def extract_transactions(config_dw, target_date_str):
