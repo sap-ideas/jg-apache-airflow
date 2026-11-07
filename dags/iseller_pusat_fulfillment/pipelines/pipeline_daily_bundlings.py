@@ -157,7 +157,9 @@ def run_daily_bundlings(start_date, end_date, config_dw):
     conn.close()
 
     df_merge_details = pd.merge(df_detail_qty, df_detail_amount, on=['order_id', 'bundling_name'], how='inner')
-    df_merge_headers = df_merge_details.merge(df_headers, on='order_id', how='inner')
+    # Order split payment punya >1 baris header (1 per transaksi); nominalnya sudah dibagi per porsi, tapi details hanya 1 set.
+    # 1 header per order supaya details tidak tergandakan saat merge.
+    df_merge_headers = df_merge_details.merge(df_headers.drop_duplicates(subset='order_id'), on='order_id', how='inner')
 
     grouping_col = ['transaction_date', 'week', 'month', 'year', 'jilid', 'ownership_model',
                     'outlet_name', 'outlet_brand', 'region', 'provinsi', 'kota',

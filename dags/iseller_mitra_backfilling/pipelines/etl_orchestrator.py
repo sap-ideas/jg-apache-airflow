@@ -42,11 +42,12 @@ from extract import (
     fetch_all_orders,
     get_access_token,
     get_existing_order_ids,
+    get_orders_without_details,
     get_master_products,
     get_outlet_ids,
 )
 from transform import transform_orders
-from load import load_missing_orders
+from load import load_missing_details, load_missing_orders
 
 DEFAULT_DAG_ID = "etl_iseller_mitra_backfilling"
 
@@ -112,6 +113,8 @@ def _stats_table(stats):
         ("Order baru di-insert", stats.get("orders_inserted", 0)),
         ("Header rows", stats.get("headers_inserted", 0)),
         ("Details rows", stats.get("details_inserted", 0)),
+        ("Order existing: details diisi", stats.get("details_only_orders", 0)),
+        ("Details rows (order existing)", stats.get("details_only_rows", 0)),
     ]
     body = "".join(f'<tr><td {_TD}>{k}</td><td {_TD_R}>{int(v):,}</td></tr>' for k, v in rows)
     body += (f'<tr><td {_TD}>Amount header</td><td {_TD_R}>Rp {float(stats.get("headers_amount", 0)):,.0f}</td></tr>'
@@ -126,29 +129,27 @@ def run_all(start_date, end_date, config_dw, dry_run=False, airflow_context=None
     """
     dag_id, run_id, exec_at = _teams_meta(airflow_context)
     meta = dict(period_start=start_date, period_end=end_date, dag_id=dag_id, run_id=run_id, executed_at_display=exec_at)
-    # Cek order yang sudah ada: hari target + 1 hari (transaksi/refund yang tercatat di hari berikutnya)
-    check_end = pendulum.parse(end_date).add(days=1).to_date_string()
 
     print("=" * 65)
     print("  iSeller Mitra BACKFILLING" + ("  [DRY RUN - Data Lake tidak ditulis]" if dry_run else ""))
-    print(f"  Tarik API: {start_date} s/d {end_date} | cek order existing: {start_date} s/d {check_end}")
+    print(f"  Tarik API: {start_date} s/d {end_date} | cek order existing: per order_id (tanpa filter tanggal)")
     print("=" * 65)
 
     try:
         token = get_access_token()
 
-        print("\n  [1/5] Order yang sudah ada di Data Lake...")
-        existing_ids = get_existing_order_ids(config_dw, start_date, check_end)
-        print(f"        {len(existing_ids):,} order")
-
-        print("  [2/5] Outlet + master produk + GetOrders...")
+        print("\n  [1/5] Outlet + master produk + GetOrders...")
         outlet_ids = get_outlet_ids(token)
         print(f"        {len(outlet_ids)} outlet")
         df_products = get_master_products(token)
         get_data, failed_calls = fetch_all_orders(token, outlet_ids, build_windows(start_date, end_date))
 
-        print("  [3/5] Filter order yang belum ada di Data Lake...")
+        print("  [2/5] Order yang sudah ada di Data Lake (cek per order_id)...")
         all_orders = [o for batch in get_data if batch for o in batch]
+        existing_ids = get_existing_order_ids(config_dw, {o['order_id'] for o in all_orders})
+        print(f"        {len(existing_ids):,} dari {len({o['order_id'] for o in all_orders}):,} order API sudah ada")
+
+        print("  [3/5] Filter order yang belum ada di Data Lake...")
         missing = [o for o in all_orders if o['order_id'] not in existing_ids]
         # 1 order bisa muncul lebih dari sekali bila tertarik di 2 jendela: ambil sekali per order_id
         missing = list({o['order_id']: o for o in missing}.values())
@@ -171,12 +172,26 @@ def run_all(start_date, end_date, config_dw, dry_run=False, airflow_context=None
                 print(f"        Header {h_total:,.2f} | Details {d_total:,.2f} | akurasi {d_total / h_total * 100 if h_total else 0:.3f}%")
 
                 print("  [5/5] Load (1 transaksi)...")
-                stats.update(load_missing_orders(config_dw, df_headers, df_details, start_date, check_end, dry_run=dry_run))
+                stats.update(load_missing_orders(config_dw, df_headers, df_details, dry_run=dry_run))
                 print(f"        {'AKAN di-insert' if dry_run else 'Di-insert'}: {stats['orders_inserted']:,} order, "
                       f"{stats['headers_inserted']:,} header, {stats['details_inserted']:,} details "
                       f"({stats['orders_skipped_existing']} order di-skip, sudah ada)")
         else:
             print("  [4/5] Transform + [5/5] Load: dilewati, tidak ada order baru.")
+
+        # Order yang headernya sudah ada (paid + fulfilled + success) tapi details-nya tidak pernah masuk: isi details saja.
+        # Header dan order yang sudah ada tidak diubah (order closed tidak boleh berubah).
+        print("  [+] Order existing tanpa details (isi details saja)...")
+        existing_with_items = {o['order_id']: o for o in all_orders if o['order_id'] in existing_ids and o.get('order_details')}
+        no_details_ids = get_orders_without_details(config_dw, list(existing_with_items)) if existing_with_items else set()
+        stats.update({'details_only_orders': 0, 'details_only_rows': 0, 'details_only_amount': 0.0})
+        if no_details_ids:
+            _h, df_details_only = transform_orders([[existing_with_items[i] for i in no_details_ids]], df_products)
+            df_details_only = df_details_only[df_details_only['order_id'].isin(no_details_ids)] if len(df_details_only) else df_details_only
+            if len(df_details_only):
+                stats.update(load_missing_details(config_dw, df_details_only, dry_run=dry_run))
+        print(f"        {'AKAN diisi' if dry_run else 'Diisi'}: {stats['details_only_orders']:,} order, {stats['details_only_rows']:,} details "
+              f"(dari {len(no_details_ids):,} order existing tanpa details)")
 
     except MissingAccessTokenError as e:
         print(f"\n  access_token_mitra NOT SET: {e}")

@@ -34,9 +34,9 @@ tapi **tidak menulis Data Lake dan tidak kirim email/Teams**; run terjadwal sela
 
 ```
 1. Token: Airflow Variable access_token_mitra (fallback env var) → kosong = MissingAccessTokenError (tanpa retry)
-2. order_id yang sudah ada di transactions_iseller_mitra (transaction_date window + 1 hari)
+2. (cek order existing dipindah ke langkah 4: per order_id, tanpa filter tanggal)
 3. Extract: getstoreinfo + GetProducts + GetOrders per (outlet x jendela 4 jam), 10 worker, retry 5x
-4. Filter: hanya order yang belum ada di Data Lake
+4. Filter: hanya order yang belum ada di Data Lake (dicek per order_id, tanpa filter tanggal)
 5. Transform (pipelines/transform.py, sama dengan backfilling dan fulfillment)
 6. Load: header + details dalam 1 TRANSAKSI; order_id existing dicek ulang di dalam transaksi
 7. Email + Teams. Panggilan API yang TETAP gagal: data yang berhasil tetap di-load, task digagalkan (PARTIAL) supaya Airflow retry
@@ -45,9 +45,9 @@ tapi **tidak menulis Data Lake dan tidak kirim email/Teams**; run terjadwal sela
 
 ## Detail
 
-- **Kenapa aman diulang:** cek "order sudah ada" memindai `transactions_iseller_mitra` (±1,6 juta baris, tanpa index) dan hanya makan
-  beberapa detik (diukur 1–5 detik). Dilakukan dua kali per run (sebelum POST dan ulang di dalam transaksi load). Hasilnya cuma
-  beberapa ribu `order_id` di memori.
+- **Cek order sudah ada: per `order_id`, tanpa filter tanggal.** Order yang tersinkron telat ke iSeller bisa tertarik di window tanggal lain dari tanggal transaksinya (11 order Go Food 19 Okt 2026 ter-insert 3x karena cek lama hanya melihat `transaction_date` window + 1 hari). Tabel tanpa index, jadi 1 query = 1 full scan; `order_id` dicek per 20.000 per query, di extract dan ulang di dalam transaksi load.
+- **Split payment & transaksi hantu:** order dengan >1 transaksi `sale` dulu terhitung dobel di header dan details-nya tergandakan (penjaga dobel menghentikan pipeline). Sekarang `plugins/common/iseller_split_payment.py` membuang `sale` bernilai 0 kalau ada `sale` lain yang dibayar, membagi nominal header per porsi `amount` transaksi, dan menempelkan details ke 1 transaksi `sale` terbesar. Order biasa dan refund tidak berubah. Penjaga dobel tetap aktif untuk anomali nyata.
+- **Kenapa aman diulang:** cek "order sudah ada" memindai `transactions_iseller_mitra` (tanpa index) per `order_id` dari API, 16–90 detik per 20.000 `order_id` (diukur di Data Lake, tabel Pusat). Dilakukan dua kali per run (setelah GetOrders dan ulang di dalam transaksi load). Hasilnya cuma beberapa ribu `order_id` di memori.
 - **Header + details dalam 1 transaksi:** kalau header berhasil tapi details gagal, keduanya di-rollback, jadi tidak ada order "sudah ada" tanpa details.
 - **Transform** disalin dari `iseller_mitra_backfilling/pipelines/transform.py`. **Kalau transform diubah, ubah juga di file pasangannya**
   (`iseller_mitra_fulfillment`, `iseller_mitra_backfilling`).

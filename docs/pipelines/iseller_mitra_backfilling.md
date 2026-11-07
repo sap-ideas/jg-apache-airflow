@@ -35,7 +35,7 @@ proses lengkap tapi **tidak menulis Data Lake dan tidak kirim email/Teams**; run
 
 ```
 1. Token: Airflow Variable access_token_mitra (fallback env var) → kosong = MissingAccessTokenError (tanpa retry)
-2. order_id yang sudah ada di transactions_iseller_mitra (transaction_date window + 1 hari)
+2. (cek order existing dipindah ke langkah 3: per order_id, tanpa filter tanggal)
 3. Extract: getstoreinfo (semua outlet aktif, bukan dari Data Lake) + GetProducts + GetOrders
    per (outlet x jendela 4 jam), jendela berakhir xx:59:59.999, 10 worker, retry 5x (jeda 2/4/8/16 detik)
    ├─ Panggilan yang tetap gagal diulang dengan 3 worker
@@ -43,6 +43,7 @@ proses lengkap tapi **tidak menulis Data Lake dan tidak kirim email/Teams**; run
 4. Filter: hanya order yang belum ada di Data Lake (1 order_id diambil sekali walau tertarik di 2 jendela)
 5. Transform: logika sama dengan iseller_mitra_fulfillment / notebook ingest v2 (lihat bawah)
 6. Load: header + details dalam 1 TRANSAKSI; order_id existing dicek ulang di dalam transaksi
+   + Order existing (paid + fulfilled + success) yang headernya ada tapi details-nya 0 baris: HANYA details-nya diisi (header & order closed tidak diubah)
 7. Email + Teams. Kalau ada panggilan API yang TETAP gagal: data yang berhasil tetap di-load, lalu task digagalkan
    (email/Teams "PARTIAL") supaya Airflow retry. Run ulang hanya memasukkan order yang belum ada.
 
@@ -52,6 +53,8 @@ proses lengkap tapi **tidak menulis Data Lake dan tidak kirim email/Teams**; run
 
 ## Detail
 
+- **Cek order sudah ada: per `order_id`, tanpa filter tanggal.** Order yang tersinkron telat ke iSeller bisa tertarik di window tanggal lain dari tanggal transaksinya (11 order Go Food 19 Okt 2026 ter-insert 3x karena cek lama hanya melihat `transaction_date` window + 1 hari). Tabel tanpa index, jadi 1 query = 1 full scan; `order_id` dicek per 20.000 per query, di extract dan ulang di dalam transaksi load.
+- **Split payment & transaksi hantu:** order dengan >1 transaksi `sale` dulu terhitung dobel di header dan details-nya tergandakan (penjaga dobel menghentikan pipeline). Sekarang `plugins/common/iseller_split_payment.py` membuang `sale` bernilai 0 kalau ada `sale` lain yang dibayar, membagi nominal header per porsi `amount` transaksi, dan menempelkan details ke 1 transaksi `sale` terbesar. Order biasa dan refund tidak berubah. Penjaga dobel tetap aktif untuk anomali nyata.
 - **Order tanpa transaksi (belum dibayar) tidak dimasukkan.** Order yang saat ditarik belum punya transaksi tidak punya
   baris header; details tanpa header akan masuk dengan kolom header kosong (`transactions_type`, `sales_type`, dst.) dan
   meleset dari akurasi (pernah terjadi di tgl 18 dan 22 Okt 2026). Order itu tertarik lagi di run berikutnya setelah transaksinya ada.

@@ -46,7 +46,7 @@ def run_daily_transactions(start_date, end_date, config_dw):
             SUM(transactions.subtotal) AS total_net_sales,
             SUM(transactions.total_tax_amount) AS total_taxes,
             SUM(transactions.total_amount) AS total_collected,
-            COUNT(transactions.order_id) AS total_order 
+            COUNT(DISTINCT transactions.order_id) AS total_order 
         FROM 
             transactions_iseller_pusat transactions
             JOIN 

@@ -25,6 +25,7 @@ FETCH_MAX_WORKERS = 10
 REFETCH_FAILED_WORKERS = 3     # panggilan yang gagal diulang dengan beban lebih ringan
 REFETCH_EMPTY_WORKERS = 5
 WINDOW_HOURS = 4               # 6 jendela per hari, sama dengan notebook ingest
+EXISTING_CHECK_CHUNK = 20000     # order_id per query cek order existing (tabel tanpa index: 1 query = 1 full scan)
 GET_PRODUCTS_PAGE_SIZE = 500
 GET_PRODUCTS_MAX_PAGES = 200   # batas pengaman loop, paging berhenti di page kosong
 PROGRESS_EVERY_N_OUTLETS = 100
@@ -81,21 +82,64 @@ def build_windows(start_date, end_date):
     return windows
 
 
-def get_existing_order_ids(config_dw, start_date, end_date):
-    """order_id yang sudah ada di header Data Lake untuk transaction_date start_date .. end_date (inklusif)."""
+def get_existing_order_ids(config_dw, order_ids):
+    """
+    Subset `order_ids` yang sudah ada di header Data Lake. Cek LANGSUNG per order_id, tanpa filter tanggal:
+    order yang tersinkron telat ke iSeller bisa tertarik di window tanggal lain dari tanggal transaksinya,
+    dan filter tanggal tidak akan menemukannya (11 order Go Food 19 Okt 2026 ter-insert 3x karena ini).
+    """
+    order_ids = list(order_ids)
+    existing = set()
     conn = get_connection(config_dw, config_dw.db_resource)
     try:
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT DISTINCT order_id FROM transactions_iseller_pusat "
-            "WHERE transaction_date >= %s AND transaction_date < DATE_ADD(%s, INTERVAL 1 DAY)",
-            (start_date, end_date),
-        )
-        ids = {row[0] for row in cursor.fetchall()}
+        for i in range(0, len(order_ids), EXISTING_CHECK_CHUNK):
+            chunk = order_ids[i:i + EXISTING_CHECK_CHUNK]
+            cursor.execute(
+                "SELECT DISTINCT order_id FROM transactions_iseller_pusat "
+                "WHERE order_id IN (" + ",".join(["%s"] * len(chunk)) + ")",
+                chunk,
+            )
+            existing.update(row[0] for row in cursor.fetchall())
         cursor.close()
     finally:
         conn.close()
-    return ids
+    return existing
+
+
+def get_orders_without_details(config_dw, order_ids):
+    """
+    Subset `order_ids` yang headernya sudah ada di Data Lake dan berstatus paid + fulfilled + success,
+    tapi TIDAK punya satu pun baris details. Order closed tidak diubah; hanya details yang tidak pernah masuk yang diisi.
+    """
+    order_ids = list(order_ids)
+    conn = get_connection(config_dw, config_dw.db_resource)
+    try:
+        cursor = conn.cursor()
+        with_details = set()
+        for i in range(0, len(order_ids), EXISTING_CHECK_CHUNK):
+            chunk = order_ids[i:i + EXISTING_CHECK_CHUNK]
+            cursor.execute(
+                "SELECT DISTINCT order_id FROM transactions_items_iseller_pusat "
+                "WHERE order_id IN (" + ",".join(["%s"] * len(chunk)) + ")",
+                chunk,
+            )
+            with_details.update(row[0] for row in cursor.fetchall())
+        no_details = [oid for oid in order_ids if oid not in with_details]
+        result = set()
+        for i in range(0, len(no_details), EXISTING_CHECK_CHUNK):
+            chunk = no_details[i:i + EXISTING_CHECK_CHUNK]
+            cursor.execute(
+                "SELECT DISTINCT order_id FROM transactions_iseller_pusat "
+                "WHERE payment_status = 'paid' AND fulfillment_status = 'fulfilled' AND transactions_status = 'success' "
+                "AND order_id IN (" + ",".join(["%s"] * len(chunk)) + ")",
+                chunk,
+            )
+            result.update(row[0] for row in cursor.fetchall())
+        cursor.close()
+    finally:
+        conn.close()
+    return result
 
 
 def _auth_headers(access_token):
