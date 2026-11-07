@@ -125,29 +125,27 @@ def run_all(start_date, end_date, config_dw, dry_run=False, airflow_context=None
     """
     dag_id, run_id, exec_at = _teams_meta(airflow_context)
     meta = dict(period_start=start_date, period_end=end_date, dag_id=dag_id, run_id=run_id, executed_at_display=exec_at)
-    # Cek order yang sudah ada: hari target + 1 hari (transaksi/refund yang tercatat di hari berikutnya)
-    check_end = pendulum.parse(end_date).add(days=1).to_date_string()
 
     print("=" * 65)
     print("  iSeller Mitra INGESTION" + ("  [DRY RUN - Data Lake tidak ditulis]" if dry_run else ""))
-    print(f"  Tarik API: {start_date} s/d {end_date} | cek order existing: {start_date} s/d {check_end}")
+    print(f"  Tarik API: {start_date} s/d {end_date} | cek order existing: per order_id (tanpa filter tanggal)")
     print("=" * 65)
 
     try:
         token = get_access_token()
 
-        print("\n  [1/5] Order yang sudah ada di Data Lake...")
-        existing_ids = get_existing_order_ids(config_dw, start_date, check_end)
-        print(f"        {len(existing_ids):,} order")
-
-        print("  [2/5] Outlet + master produk + GetOrders...")
+        print("\n  [1/5] Outlet + master produk + GetOrders...")
         outlet_ids = get_outlet_ids(token)
         print(f"        {len(outlet_ids)} outlet")
         df_products = get_master_products(token)
         get_data, failed_calls = fetch_all_orders(token, outlet_ids, build_windows(start_date, end_date))
 
-        print("  [3/5] Filter order yang belum ada di Data Lake...")
+        print("  [2/5] Order yang sudah ada di Data Lake (cek per order_id)...")
         all_orders = [o for batch in get_data if batch for o in batch]
+        existing_ids = get_existing_order_ids(config_dw, {o['order_id'] for o in all_orders})
+        print(f"        {len(existing_ids):,} dari {len({o['order_id'] for o in all_orders}):,} order API sudah ada")
+
+        print("  [3/5] Filter order yang belum ada di Data Lake...")
         missing = [o for o in all_orders if o['order_id'] not in existing_ids]
         # 1 order bisa muncul lebih dari sekali bila tertarik di 2 jendela: ambil sekali per order_id
         missing = list({o['order_id']: o for o in missing}.values())
@@ -170,7 +168,7 @@ def run_all(start_date, end_date, config_dw, dry_run=False, airflow_context=None
                 print(f"        Header {h_total:,.2f} | Details {d_total:,.2f} | akurasi {d_total / h_total * 100 if h_total else 0:.3f}%")
 
                 print("  [5/5] Load (1 transaksi)...")
-                stats.update(load_new_orders(config_dw, df_headers, df_details, start_date, check_end, dry_run=dry_run))
+                stats.update(load_new_orders(config_dw, df_headers, df_details, dry_run=dry_run))
                 print(f"        {'AKAN di-insert' if dry_run else 'Di-insert'}: {stats['orders_inserted']:,} order, "
                       f"{stats['headers_inserted']:,} header, {stats['details_inserted']:,} details "
                       f"({stats['orders_skipped_existing']} order di-skip, sudah ada)")

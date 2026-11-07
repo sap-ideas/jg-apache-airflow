@@ -7,27 +7,29 @@ jadi retry Airflow / run ulang tidak menggandakan data.
 """
 
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from common.db_helpers import get_engine_datalake
 
 HEADERS_TABLE = 'transactions_iseller_mitra'
 DETAILS_TABLE = 'transactions_items_iseller_mitra'
+EXISTING_CHECK_CHUNK = 20000
 
 
-def load_new_orders(config_dw, df_headers, df_details, start_date, end_date, dry_run=False):
+def load_new_orders(config_dw, df_headers, df_details, dry_run=False):
     """
-    start_date/end_date: rentang transaction_date untuk cek order yang sudah ada (inklusif).
     Return dict: headers_inserted, details_inserted, orders_inserted, orders_skipped_existing.
     dry_run: hitung yang AKAN ditulis, tidak menulis apa pun.
     """
     engine = get_engine_datalake(config_dw)
-    existing_stmt = text(
-        f"SELECT DISTINCT order_id FROM {HEADERS_TABLE} "
-        "WHERE transaction_date >= :s AND transaction_date < DATE_ADD(:e, INTERVAL 1 DAY)"
-    )
+    existing_stmt = text(f"SELECT DISTINCT order_id FROM {HEADERS_TABLE} WHERE order_id IN :ids").bindparams(
+        bindparam('ids', expanding=True))
+    order_ids = list(df_headers['order_id'].unique())
     with (engine.connect() if dry_run else engine.begin()) as conn:
-        existing = {row[0] for row in conn.execute(existing_stmt, {'s': start_date, 'e': end_date})}
+        # Cek per order_id tanpa filter tanggal (order bisa tertarik di window tanggal lain dari tanggal transaksinya).
+        existing = set()
+        for i in range(0, len(order_ids), EXISTING_CHECK_CHUNK):
+            existing.update(row[0] for row in conn.execute(existing_stmt, {'ids': order_ids[i:i + EXISTING_CHECK_CHUNK]}))
         headers_new = df_headers[~df_headers['order_id'].isin(existing)]
         details_new = df_details[~df_details['order_id'].isin(existing)]
         skipped = df_headers['order_id'].nunique() - headers_new['order_id'].nunique()

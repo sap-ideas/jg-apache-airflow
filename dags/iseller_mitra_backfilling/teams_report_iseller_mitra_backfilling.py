@@ -82,6 +82,7 @@ def _stats_blocks(stats: dict[str, Any]) -> list[dict[str, Any]]:
         ["Order baru di-insert", format_int_commas(int(stats.get("orders_inserted", 0)))],
         ["Header rows", format_int_commas(int(stats.get("headers_inserted", 0)))],
         ["Details rows", format_int_commas(int(stats.get("details_inserted", 0)))],
+        ["Order existing: details diisi", format_int_commas(int(stats.get("details_only_orders", 0)))],
         ["Amount header", f"Rp {float(stats.get('headers_amount', 0) or 0):,.0f}"],
         ["Amount details", f"Rp {float(stats.get('details_amount', 0) or 0):,.0f}"],
     ]

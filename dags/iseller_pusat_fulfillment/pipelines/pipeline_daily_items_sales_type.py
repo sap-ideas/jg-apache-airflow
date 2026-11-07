@@ -125,7 +125,9 @@ def run_daily_items_sales_type(start_date, end_date, config_dw):
     df_headers['jilid'] = df_headers['jilid'].astype(str).str.zfill(5)
     conn.close()
 
-    df_merge = df_headers.merge(df_details, on='order_id', how='inner')
+    # Order split payment punya >1 baris header (1 per transaksi); nominalnya sudah dibagi per porsi, tapi details hanya 1 set.
+    # 1 header per order supaya details tidak tergandakan saat merge.
+    df_merge = df_headers.drop_duplicates(subset='order_id').merge(df_details, on='order_id', how='inner')
     grouping_col = ['transaction_date', 'jilid', 'ownership_model', 'outlet_name', 'sales_type_name', 'sku', 'item_name']
     sum_col = ['total_quantity', 'total_gross_sales', 'total_collected']
     df_iseller = df_merge.groupby(grouping_col)[sum_col].sum().reset_index()

@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 from pytz import timezone
 
+from common.iseller_split_payment import allocate_split_payment
+
 # Dedup key details iSeller (sama dengan iseller_mitra_cleaning/pipelines/dedup_details.py). Row sale/refund beda transactions_type.
 DETAIL_KEY = ['order_id', 'order_detail_id', 'type', 'bundling_id', 'product_id', 'sku',
               'status', 'payment_status', 'transactions_type']
@@ -179,7 +181,7 @@ def _process_api_data(data, order_id_list, df_products):
         'transactions_customer_last_name', 'transactions_customer_phone_number',
         'transactions_customer_email', 'transactions_cashier_id', 'transactions_total_order_amount',
         'transactions_total_discount_amount', 'transactions_total_promotion_amount', 'transactions_subtotal',
-        'transactions_total_tax_amount', 'transactions_total_amount', 'mdr']]
+        'transactions_total_tax_amount', 'transactions_total_amount', 'mdr', 'amount']]
 
     df_headers.columns = [
         'order_id', 'transaction_id', 'transaction_date', 'order_reference', 'outlet_id', 'outlet_code',
@@ -187,7 +189,7 @@ def _process_api_data(data, order_id_list, df_products):
         'fulfillment_status', 'transactions_type', 'transactions_status', 'transactions_gateway',
         'transactions_payment_type_name', 'notes', 'customer_id', 'customer_first_name', 'customer_last_name',
         'customer_phone_number', 'customer_email', 'cashier_id', 'total_order_amount', 'total_discount_amount',
-        'total_promotion_amount', 'subtotal', 'total_tax_amount', 'total_amount', 'mdr'
+        'total_promotion_amount', 'subtotal', 'total_tax_amount', 'total_amount', 'mdr', 'tx_amount'
     ]
 
     df_headers['order_date'] = pd.to_datetime(df_headers['order_date'])
@@ -219,6 +221,10 @@ def _process_api_data(data, order_id_list, df_products):
     values = ['Go Food', 'Grab Food', 'Shopee Food', 'Jiwa+', 'Grab Dine Out', 'Tokopedia Go', 'Qpon']
     df_merged['sales_type'] = np.select(conditions, values, default='Walk In')
     df_merged.loc[df_merged['is_sjw'] == True, 'sales_type'] = 'Sejuta Jiwa'
+
+    # Split payment / transaksi hantu: nominal header dibagi per porsi pembayaran, details hanya ke 1 transaksi sale
+    # (lihat plugins/common/iseller_split_payment.py).
+    df_merged, details_header_index = allocate_split_payment(df_merged)
 
     df_final_headers = df_merged[[
         'order_id', 'transaction_id', 'transaction_date', 'order_reference', 'outlet_id', 'outlet_code',
@@ -254,7 +260,7 @@ def _process_api_data(data, order_id_list, df_products):
         'transactions_payment_type_name', 'notes', 'customer_id', 'customer_first_name',
         'customer_last_name', 'customer_phone_number', 'customer_email', 'cashier_id']
 
-    df_details_2 = df_merge_details.merge(df_final_headers[right_cols], on='order_id', how='left')
+    df_details_2 = df_merge_details.merge(df_final_headers.loc[details_header_index, right_cols], on='order_id', how='left')
     df_details_combo = df_details_2.merge(df_product_combos, on='order_detail_id', how='left')
     df_details_combo['bundling_id'] = ''
 
