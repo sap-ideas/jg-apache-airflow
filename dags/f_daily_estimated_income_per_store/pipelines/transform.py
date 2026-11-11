@@ -39,7 +39,7 @@ COMMISSION_PCT = {
 
 SUMMARY_COLUMNS = [
     "date", "outlet_code", "outlet_name", "payment_type",
-    "subtotal", "tax_amount", "total_sales", "sales_type_commission",
+    "subtotal", "tax_amount", "total_sales", "total_order", "sales_type_commission",
 ]
 
 # lookup tidak sensitif huruf besar/kecil & spasi di pinggir (kolom di MySQL juga case-insensitive)
@@ -58,6 +58,9 @@ def build_daily_income_summary(df_raw):
     """One row per date + outlet + payment type, with subtotal / tax / total sales / commission.
 
     Nominal yang dibagi ke landlord (subtotal - sales_type_commission) sengaja tidak disimpan.
+    total_order = jumlah order unik per payment type (COUNT DISTINCT order_id dari extract, dijumlah kalau
+    beberapa raw payment_type map ke payment type yang sama). Order split payment terhitung sekali di tiap
+    payment type yang dipakainya, jadi total_order antar payment type tidak boleh dijumlah jadi jumlah order outlet.
     Payment type yang belum ada di PAYMENT_TYPE_MAP tetap disimpan (nama aslinya, komisi 0)
     supaya total per outlet-hari selalu cocok dengan sumber; lihat find_unmapped_payment_types.
 
@@ -74,6 +77,7 @@ def build_daily_income_summary(df_raw):
     # MySQL SUM() balik sebagai Decimal -> float supaya bisa dikali pct
     for col in ("total_amount", "total_tax_amount", "subtotal"):
         df[col] = pd.to_numeric(df[col]).astype(float)
+    df["total_order"] = pd.to_numeric(df["total_order"]).astype(int)
 
     df["payment_type"] = df["payment_type"].apply(map_payment_type)
     # kunci agregasi tidak sensitif huruf besar/kecil, selaras dengan UNIQUE KEY di table
@@ -85,7 +89,8 @@ def build_daily_income_summary(df_raw):
         .agg(payment_type=("payment_type", "first"),
              subtotal=("subtotal", "sum"),
              tax_amount=("total_tax_amount", "sum"),
-             total_sales=("total_amount", "sum"))
+             total_sales=("total_amount", "sum"),
+             total_order=("total_order", "sum"))
     )
 
     pct = result["payment_type"].map(COMMISSION_PCT).fillna(0.0)

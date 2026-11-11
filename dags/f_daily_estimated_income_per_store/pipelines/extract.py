@@ -11,7 +11,8 @@ OUTLET_CODES = ["00570", "00989", "01165"]
 def extract_transactions(config_dw, target_date_str):
     """Raw transactions for OUTLET_CODES on target_date_str, grouped by payment_type.
 
-    Source: transactions_iseller_pusat (MySQL Data Lake).
+    Source: transactions_iseller_pusat (MySQL Data Lake). Grain header = 1 baris per transaksi
+    (order split payment punya >1 baris), jadi jumlah order dihitung COUNT(DISTINCT order_id).
     """
     connection = get_connection(config_dw, config_dw.db_resource)
     cursor = connection.cursor()
@@ -26,7 +27,8 @@ def extract_transactions(config_dw, target_date_str):
             transactions_payment_type_name AS payment_type,
             SUM(total_amount) AS total_amount,
             SUM(total_tax_amount) AS total_tax_amount,
-            SUM(subtotal) AS subtotal
+            SUM(subtotal) AS subtotal,
+            COUNT(DISTINCT order_id) AS total_order
         FROM transactions_iseller_pusat
         WHERE DATE_FORMAT(transaction_date, '%Y-%m-%d') = '{target_date_str}'
             AND outlet_code IN ('{outlet_list}')
