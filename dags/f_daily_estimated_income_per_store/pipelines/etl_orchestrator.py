@@ -152,6 +152,7 @@ def run_all(config_dw, target_date_str=None):
             "target_date":                      target_date_str,
             "transactions (extracted)":         f"{len(df_raw):,}",
             "daily_summary (transformed)":      f"{len(df_summary):,}",
+            "total_order (sum per payment type)": f"{int(df_summary['total_order'].sum()):,}",
             f"{TARGET_TABLE} (overwrite -del/+ins)": f"-{deleted:,} / +{inserted:,}",
             "total_time":                       f"{total_elapsed:.1f}s",
         }

@@ -24,6 +24,7 @@ CREATE TABLE daily_est_income_per_store_for_landlord (
     subtotal DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Net sales (SUM subtotal)',
     tax_amount DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Pajak (SUM total_tax_amount, apa adanya dari iSeller)',
     total_sales DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Gross sales (SUM total_amount)',
+    total_order INT NOT NULL DEFAULT 0 COMMENT 'Jumlah order unik (COUNT DISTINCT order_id) per payment type, order split payment dihitung sekali per payment type yang dipakai, jadi jangan dijumlah antar payment type',
     sales_type_commission DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT 'Komisi payment type dalam rupiah = subtotal x pct (tidak dibulatkan di kode)',
 
     load_data_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
