@@ -78,6 +78,7 @@ PRODUCT_ID_SJW_LABEL = {
     '7fed141a-8b22-4cee-80c0-df4242e136ec',  # added at 2026-10-09 (Es Kopi Susu Honey, FCH040025)
     '5faac2db-7827-4414-a5ac-1345a79299dd',  # added at 2026-10-09 (Matcha - KSJ, FCH040036)
     '06aa6648-b40a-4d02-b9b7-3105fa83c762',  # added at 2026-10-09 (Matcha - SJO, ITM022191)
+    '75882846-f8ce-40a1-8405-031dfe2499c2',  # added at 2026-11-04 (Makaroni Balado - KSJ)
 }
 
 def _frame(rows, columns):
