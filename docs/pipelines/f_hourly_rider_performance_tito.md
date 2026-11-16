@@ -10,7 +10,7 @@ File: `dag_etl_f_hourly_rider_performance_tito.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `f_hourly_rider_performance_tito` |
-| `schedule_interval` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
+| `schedule` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

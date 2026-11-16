@@ -6,7 +6,8 @@ Reads FULL tables from MySQL Data Lake (KBN + MITRA), replaces in PostgreSQL
 Trigger: Dataset-based. Automatically runs when KSJ Link ETL DAG completes.
 Safe to run multiple times (idempotent) since it does TRUNCATE + INSERT.
 """
-from airflow import DAG, Dataset
+from airflow import DAG
+from airflow.sdk import Asset
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import pendulum
@@ -22,7 +23,7 @@ from sync_postgresql import sync_mysql_to_postgresql
 
 
 # ==================== DATASET (triggered by KSJ Link ETL DAG) ====================
-DATASET_MYSQL_UPDATED = Dataset("sejutajiwa_riders_hubs_mapping://mysql_updated")
+DATASET_MYSQL_UPDATED = Asset("sejutajiwa_riders_hubs_mapping://mysql_updated")
 
 
 # ==================== CONFIGURATION ====================

@@ -13,7 +13,7 @@ File: `log_cleanup_dag.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `maintenance_log_cleanup` |
-| `schedule_interval` | `'0 2 * * 0'` — tiap Minggu 02:00 Asia/Jakarta |
+| `schedule` | `'0 2 * * 0'` — tiap Minggu 02:00 Asia/Jakarta |
 | `start_date` | `datetime(2024, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |
@@ -38,9 +38,9 @@ pre_cleanup_disk_check
 | Task | Tipe | Fungsi |
 |---|---|---|
 | `pre_cleanup_disk_check` | `BashOperator` | `du`/`find` untuk log disk usage, jumlah file log, file log tertua — murni informasional |
-| `cleanup_old_log_files` | `BashOperator` | Hapus file di `/opt/airflow/logs` lebih tua dari `LOG_RETENTION_DAYS=7` hari (`find ... -mtime +7 -delete`), laporkan jumlah sebelum/sesudah |
+| `cleanup_old_log_files` | `BashOperator` | Hapus file di `/opt/airflow/logs` lebih tua dari `LOG_RETENTION_DAYS=180` hari (`find ... -mtime +180 -delete`), laporkan jumlah sebelum/sesudah |
 | `cleanup_empty_directories` | `BashOperator` | Hapus direktori kosong di `/opt/airflow/logs` |
-| `cleanup_old_dag_runs_database` | `BashOperator` | `airflow db clean --clean-before-timestamp <cutoff> --skip-archive --yes --verbose` — purge baris metadata DB lebih tua dari `DAG_RUN_RETENTION_DAYS=30` hari |
+| `cleanup_old_dag_runs_database` | `BashOperator` | `airflow db clean --clean-before-timestamp <cutoff> --skip-archive --yes --verbose` — purge baris metadata DB lebih tua dari `DAG_RUN_RETENTION_DAYS=180` hari |
 | `optimize_airflow_database` | `BashOperator` | `psql $AIRFLOW__DATABASE__SQL_ALCHEMY_CONN -c "VACUUM ANALYZE;"` terhadap Postgres metadata Airflow |
 | `post_cleanup_disk_check` | `BashOperator` | Ulangi cek disk/log-file plus `df -h` free space sistem, untuk perbandingan sebelum/sesudah |
 | `generate_cleanup_report` | `PythonOperator` | `subprocess.run` shell out ke `du`/`find` lagi, log ringkasan terformat via `logging.info` |
@@ -51,8 +51,8 @@ pre_cleanup_disk_check
 
 | Data | Retensi | Lokasi |
 |---|---|---|
-| Task Logs | 30 hari (docker-compose `AIRFLOW__LOGGING__LOG_RETENTION_DAYS`) — **catatan**: konstanta di DAG (`LOG_RETENTION_DAYS=7`) berbeda dari docker-compose (30). Komentar di kode menyatakan konstanta ini "should match docker-compose.yaml" tapi tidak ada validasi otomatis — worth dicek/disinkronkan kalau retensi mau diubah. | File system |
-| DAG Runs | `DAG_RUN_RETENTION_DAYS=30` hari | PostgreSQL DB metadata |
+| Task Logs | `LOG_RETENTION_DAYS=180` hari (konstanta di DAG yang menentukan; `AIRFLOW__LOGGING__LOG_RETENTION_DAYS` di docker-compose hanya disamakan sebagai catatan, tidak dibaca Airflow/DAG) | File system |
+| DAG Runs | `DAG_RUN_RETENTION_DAYS=180` hari (disamakan dengan task logs supaya log lama tetap bisa dibuka dari UI) | PostgreSQL DB metadata |
 
 ## Pola Kode Khas
 
@@ -64,4 +64,4 @@ pre_cleanup_disk_check
 
 ## Connections / Variables
 
-- Tidak ada Connection/Variable custom — hanya mengandalkan env var `$AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` (connection string metadata DB milik Airflow sendiri) dan CLI internal `airflow db clean`.
+- Tidak ada Connection/Variable custom — hanya mengandalkan CLI internal `airflow db clean` dengan connection string metadata DB dari env var `$AIRFLOW_METADATA_DB_CONN` (Airflow 3 mengosongkan `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` di dalam task, jadi koneksi diteruskan eksplisit).

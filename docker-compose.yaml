@@ -5,7 +5,7 @@ x-airflow-common:
   build:
     context: .
     dockerfile: Dockerfile.airflow
-  image: airflow-nexus:2.8.1-python3.11
+  image: airflow-nexus:3.4.0-python3.11
   # Load repo `.env` into the container (access_token_pusat, AIRFLOW_UID, etc.).
   # Relying only on ${access_token_pusat:-} interpolation can yield empty if compose
   # doesn’t pick up `.env` at parse time—then it overrides any value from env_file.
@@ -14,12 +14,22 @@ x-airflow-common:
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    # Airflow 3: keep FAB login so existing users/roles keep working (default would be SimpleAuthManager)
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    # Airflow 3: tasks talk to the API server instead of the metadata DB; JWT secret must match on every component
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:?set_in_env}
+    # Airflow 3 default (False) switches cron DAGs to CronTriggerTimetable, which changes logical_date/run_id
+    # and would run every DAG right after the upgrade. True keeps the Airflow 2 behaviour.
+    AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS: 'True'
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # Same connection under a name Airflow 3 does not blank inside tasks; only for `airflow db clean`
+    # in dags/maintenance/log_cleanup_dag.py
+    AIRFLOW_METADATA_DB_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     # Encrypt Airflow Variables/Connections at rest (set in `.env`)
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:?set_in_env}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     
     # MySQL Database Connections (values come from .env — see .env.example)
@@ -70,7 +80,7 @@ x-airflow-common:
     # LOG RETENTION & CLEANUP SETTINGS
     # ============================================
     # Automatically delete task logs older than this number of days
-    AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '7'
+    AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '180'
     
     # Maximum number of DAG runs to keep per DAG in the database
     AIRFLOW__CORE__MAX_NUM_RUNS_PER_DAG: '25'
@@ -79,7 +89,7 @@ x-airflow-common:
     AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
     
     # How often to check for DAGs (seconds) - affects cleanup frequency
-    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '300'
+    AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: '300'
     
     # Kill tasks that have been running too long (seconds)
     AIRFLOW__CORE__DAGRUN_TIMEOUT: '86400'  # 24 hours
@@ -108,13 +118,15 @@ x-airflow-common:
 
 services:
   postgres:
-    image: postgres:13
+    # Airflow 3.4 supports PostgreSQL 14-18. New volume: the old Postgres 13 volume (postgres-db-volume)
+    # is left untouched for rollback; data is moved with pg_dump/pg_restore (see docs/DEPLOYMENT.md).
+    image: postgres:16
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
+      - postgres16-db-volume:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
@@ -122,13 +134,13 @@ services:
       start_period: 5s
     restart: always
 
-  airflow-webserver:
+  airflow-apiserver:
     <<: *airflow-common
-    command: webserver
+    command: api-server
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -144,6 +156,21 @@ services:
     command: scheduler
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -180,7 +207,7 @@ services:
         exec /entrypoint airflow version
     environment:
       <<: *airflow-common-env
-      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
@@ -201,4 +228,4 @@ services:
       - airflow
 
 volumes:
-  postgres-db-volume:
+  postgres16-db-volume:

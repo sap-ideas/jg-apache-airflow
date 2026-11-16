@@ -88,7 +88,7 @@ with DAG(
     dag_id="etl_iseller_mitra_ingestion",
     default_args=default_args,
     description="ETL iSeller Mitra: ingestion harian order H-1 dari iSeller API ke Data Lake (tanpa redump DWH)",
-    schedule_interval="0 6 * * *",
+    schedule="0 6 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "ingestion", "datalake", "production"],

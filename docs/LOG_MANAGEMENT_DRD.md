@@ -130,8 +130,8 @@ Without automation, requires manual intervention:
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| FR-001 | Automatically delete log files older than 30 days | **High** | ✅ Implemented |
-| FR-002 | Clean database records older than 60 days | **High** | ✅ Implemented |
+| FR-001 | Automatically delete log files older than 180 days | **High** | ✅ Implemented |
+| FR-002 | Clean database records older than 180 days | **High** | ✅ Implemented |
 | FR-003 | Monitor disk usage with configurable thresholds | **Medium** | ✅ Implemented |
 | FR-004 | Generate cleanup reports | **Medium** | ✅ Implemented |
 | FR-005 | Support manual cleanup triggers | **Low** | ✅ Implemented |
@@ -142,7 +142,7 @@ Without automation, requires manual intervention:
 |----|-------------|--------|--------|
 | NFR-001 | Cleanup execution time | < 5 minutes | ✅ Met |
 | NFR-002 | Zero impact on running DAGs | 100% isolation | ✅ Met |
-| NFR-003 | Storage overhead reduction | > 50% after 60 days | ✅ Projected |
+| NFR-003 | Storage overhead reduction | > 50% after 180 days | ✅ Projected |
 | NFR-004 | Monitoring script execution | < 10 seconds | ✅ Met |
 | NFR-005 | Configuration flexibility | Environment-based | ✅ Met |
 
@@ -150,10 +150,10 @@ Without automation, requires manual intervention:
 
 | Data Type | Retention Period | Justification |
 |-----------|-----------------|---------------|
-| **Task Logs** | 30 days | Debugging window for recent runs |
-| **DAG Runs (DB)** | 60 days | Audit trail & analysis |
-| **Success Logs** | 30 days | Standard retention |
-| **Failed Logs** | 60 days | Extended debugging period |
+| **Task Logs** | 180 days | Debugging window for recent runs |
+| **DAG Runs (DB)** | 180 days | Audit trail & analysis |
+| **Success Logs** | 180 days | Standard retention |
+| **Failed Logs** | 180 days | Extended debugging period |
 
 ---
 
@@ -212,7 +212,7 @@ Without automation, requires manual intervention:
 
 **Key Settings:**
 ```yaml
-AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '30'
+AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '180'
 AIRFLOW__CORE__MAX_NUM_RUNS_PER_DAG: '50'
 AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
 ```
@@ -222,9 +222,9 @@ AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
 
 **Workflow:**
 1. **Pre-cleanup Analysis** → Capture baseline metrics
-2. **Log File Cleanup** → Delete files > 30 days old
+2. **Log File Cleanup** → Delete files > 180 days old
 3. **Directory Cleanup** → Remove empty directories
-4. **Database Cleanup** → Purge old DAG runs (> 60 days)
+4. **Database Cleanup** → Purge old DAG runs (> 180 days)
 5. **Database Optimization** → VACUUM and ANALYZE
 6. **Post-cleanup Analysis** → Compare results
 7. **Report Generation** → Summary and recommendations
@@ -301,10 +301,10 @@ AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
 
 ```yaml
 # Log Retention Settings
-AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '30'          # Days to keep logs
+AIRFLOW__LOGGING__LOG_RETENTION_DAYS: '180'          # Days to keep logs
 AIRFLOW__CORE__MAX_NUM_RUNS_PER_DAG: '50'           # Max runs per DAG in DB
 AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
-AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '300'    # Cleanup check frequency
+AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: '300'    # Cleanup check frequency
 AIRFLOW__CORE__DAGRUN_TIMEOUT: '86400'              # 24 hour timeout
 ```
 
@@ -321,8 +321,8 @@ AIRFLOW__CORE__DAGRUN_TIMEOUT: '86400'              # 24 hour timeout
 
 **Parameters:**
 ```python
-LOG_RETENTION_DAYS = 30        # Must match docker-compose.yaml
-DAG_RUN_RETENTION_DAYS = 60    # Database cleanup threshold
+LOG_RETENTION_DAYS = 180       # Must match docker-compose.yaml
+DAG_RUN_RETENTION_DAYS = 180   # Database cleanup threshold
 ```
 
 **Task Dependencies:**
@@ -380,19 +380,19 @@ pre_cleanup_check
 
 #### Scenario 1: Emergency Disk Space Issue
 ```bash
-# Quick cleanup (last 60 days)
+# Quick cleanup (> 180 days)
 cd /root/repository
-find logs -name '*.log' -mtime +60 -delete
+find logs -name '*.log' -mtime +180 -delete
 
 # Database cleanup
 docker-compose exec airflow-scheduler \
-  airflow db clean --clean-before-timestamp $(date -d '60 days ago' +%Y-%m-%d) -y
+  airflow db clean --clean-before-timestamp $(date -d '180 days ago' +%Y-%m-%d) -y
 ```
 
 #### Scenario 2: Specific DAG Cleanup
 ```bash
 # Clean specific DAG logs
-find logs/dag_id=etl_sejutajiwa_riders_hubs_mapping -name '*.log' -mtime +30 -delete
+find logs/dag_id=etl_sejutajiwa_riders_hubs_mapping -name '*.log' -mtime +180 -delete
 ```
 
 #### Scenario 3: Complete Reset (Development Only)
@@ -440,7 +440,7 @@ du -sh logs/dag_id=*
 |--------|-----------|--------|
 | **Total Log Storage** | > 10 GB | Alert & investigate |
 | **Log File Count** | > 10,000 | Review retention policy |
-| **Oldest Log Age** | > 60 days | Manual cleanup |
+| **Oldest Log Age** | > 187 days (180 + jeda jadwal mingguan) | Manual cleanup |
 | **Database Size** | > 5 GB | Review run retention |
 | **Failed Cleanups** | > 0 | Investigate errors |
 
@@ -485,7 +485,7 @@ du -sh logs/dag_id=*
 ### 10.2 Mitigation Strategies
 
 #### Data Protection
-- **Retention buffers:** 30 days (logs), 60 days (database)
+- **Retention buffers:** 180 days (logs), 180 days (database)
 - **Selective deletion:** Age-based, not size-based
 - **Backup considerations:** Critical runs archived separately
 
@@ -545,8 +545,8 @@ du -sh /root/repository/logs
 cd /root/repository
 ./scripts/monitor_airflow_logs.sh
 
-# Manual cleanup (> 30 days)
-find /root/repository/logs -name '*.log' -mtime +30 -delete
+# Manual cleanup (> 180 days)
+find /root/repository/logs -name '*.log' -mtime +180 -delete
 
 # Trigger maintenance DAG manually
 docker-compose exec airflow-scheduler \
@@ -558,7 +558,7 @@ docker-compose exec airflow-scheduler \
 
 # Restart Airflow (apply config changes)
 cd /root/repository
-docker-compose restart airflow-scheduler airflow-webserver
+docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor
 ```
 
 ### 12.2 Troubleshooting Guide
@@ -608,7 +608,7 @@ docker-compose exec postgres psql -U airflow -d airflow -c \
 ```bash
 # Manual database cleanup
 docker-compose exec airflow-scheduler \
-  airflow db clean --clean-before-timestamp $(date -d '30 days ago' +%Y-%m-%d) -y
+  airflow db clean --clean-before-timestamp $(date -d '180 days ago' +%Y-%m-%d) -y
 ```
 
 ### 12.3 Related Documentation

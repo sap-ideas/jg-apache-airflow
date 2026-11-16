@@ -13,7 +13,7 @@ File: `dag_etl_f_ksj_ondemand_order_summary.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `f_ksj_ondemand_order_summary` |
-| `schedule_interval` | `"0 9,12,15,17 * * *"` — 4x/hari, 09:00 / 12:00 / 15:00 / 17:00 Asia/Jakarta |
+| `schedule` | `"0 9,12,15,17 * * *"` — 4x/hari, 09:00 / 12:00 / 15:00 / 17:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

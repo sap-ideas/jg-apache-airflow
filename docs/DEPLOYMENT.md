@@ -9,12 +9,14 @@ production), lihat [`docs/CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## 1. Apa yang dijalankan
 
-- **Apache Airflow 2.8.1** (Python 3.11), `LocalExecutor`, single node.
-- **Docker Compose** — 5 service: `postgres` (metadata DB Airflow), `airflow-webserver`,
-  `airflow-scheduler`, `airflow-triggerer`, `airflow-init` (jalan sekali saat bootstrap).
-- Image custom `airflow-nexus:2.8.1-python3.11` = image resmi Airflow + dependency di
+- **Apache Airflow 3.4.0** (Python 3.11), `LocalExecutor`, single node. Upgrade dari 2.8.1:
+  lihat [bagian 14](#14-upgrade-airflow-281--340-runbook-sekali-jalan).
+- **Docker Compose** — 6 service: `postgres` (metadata DB Airflow, PostgreSQL 16),
+  `airflow-apiserver` (Web UI + API), `airflow-scheduler`, `airflow-dag-processor`,
+  `airflow-triggerer`, `airflow-init` (jalan sekali saat bootstrap / migrasi DB).
+- Image custom `airflow-nexus:3.4.0-python3.11` = image resmi Airflow + dependency di
   `requirements.txt` (di-build dari `Dockerfile.airflow`).
-- 10 folder DAG / 11 `dag_id` produksi (ETL data warehouse/data lake, riders mapping,
+- 15 folder DAG / 16 `dag_id` produksi (ETL data warehouse/data lake, riders mapping,
   revenue sharing, maintenance) — jadwal lengkap ada di
   [`docs/pipelines/README.md`](pipelines/README.md).
 
@@ -136,9 +138,9 @@ Atau pakai script yang sudah disiapkan (menjalankan build+init+up otomatis kalau
 docker-compose ps
 
 # Web UI harus bisa diakses
-curl -f http://localhost:8080/health
+curl -f http://localhost:8080/api/v2/monitor/health
 
-# Semua 11 dag_id harus muncul, tanpa import error
+# Semua 16 dag_id harus muncul, tanpa import error
 docker-compose exec airflow-scheduler airflow dags list
 docker-compose exec airflow-scheduler airflow dags list-import-errors
 
@@ -164,26 +166,27 @@ Daftar `dag_id` ada di [`docs/pipelines/README.md`](pipelines/README.md).
 | `./status_airflow.sh` | Cek status service & volume |
 | `./logs_airflow.sh [service]` | Tail log (semua service, atau salah satu) |
 | `./scripts/monitor_airflow_logs.sh [--alert-threshold-gb N]` | Cek ukuran folder `logs/`, alert kalau lewat threshold |
-| `docker-compose restart airflow-scheduler airflow-webserver` | Restart tanpa downtime metadata DB (dipakai setelah ganti `.env`, mis. update `access_token_pusat`) |
-| `docker-compose build && docker-compose up -d` | Rebuild image setelah `requirements.txt` berubah |
+| `docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor` | Restart tanpa downtime metadata DB (dipakai setelah ganti `.env`, mis. update `access_token_pusat`) |
+| `docker-compose build && docker-compose down && docker-compose up -d` | Rebuild image setelah `requirements.txt` berubah (`down` dulu: `docker-compose` v1 crash `KeyError: 'ContainerConfig'` kalau langsung `up -d` di atas container lama) |
 
 ## 7. Update / redeploy setelah ada perubahan kode
 
 ```bash
 git pull
-# Kalau requirements.txt berubah:
+# Kalau requirements.txt / Dockerfile.airflow / docker-compose.yaml berubah:
 docker-compose build
+docker-compose down          # tanpa -v
 docker-compose up -d
 # Kalau cuma perubahan DAG (.py), tidak perlu rebuild/restart —
-# scheduler otomatis re-scan folder dags/ tiap AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL (300 detik)
+# dag-processor otomatis re-scan folder dags/ tiap AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL (300 detik)
 ```
 
 ## 8. Logs & retensi
 
 Diatur di `docker-compose.yaml` env `AIRFLOW__LOGGING__LOG_RETENTION_DAYS` (saat ini
-**7 hari**) dan dieksekusi oleh DAG `maintenance_log_cleanup`
+**180 hari**) dan dieksekusi oleh DAG `maintenance_log_cleanup`
 (`dags/maintenance/log_cleanup_dag.py`, jadwal Minggu 02:00 WIB), yang juga membersihkan
-DAG run history di metadata DB (`DAG_RUN_RETENTION_DAYS = 30` hari, hardcoded di file
+DAG run history di metadata DB (`DAG_RUN_RETENTION_DAYS = 180` hari, hardcoded di file
 tersebut — ubah manual di kode kalau mau beda dari nilai di compose). Detail lengkap ada
 di [`docs/LOG_MANAGEMENT_DRD.md`](LOG_MANAGEMENT_DRD.md).
 
@@ -192,11 +195,14 @@ ruang cukup, dan jangan hapus `logs/` manual saat container jalan.
 
 ## 9. Backup & data yang perlu di-backup
 
-- **Metadata Airflow** ada di Docker volume `postgres-db-volume` (bukan file di repo) —
-  ini yang menyimpan DAG run history, Connections, Variables (termasuk
+- **Metadata Airflow** ada di Docker volume `postgres16-db-volume` (bukan file di repo) —
+  ini yang menyimpan DAG run history, user login, Variables (termasuk
   `access_token_pusat`, `access_token_mitra`, dan webhook Teams kalau disimpan sebagai Airflow Variable, bukan
-  cuma `.env`). Backup dengan `docker-compose exec postgres pg_dump -U airflow airflow > backup.sql`,
-  atau backup volume-nya langsung.
+  cuma `.env`). Backup dengan `docker-compose exec -T postgres pg_dump -U airflow -Fc airflow > backup.dump`,
+  atau backup volume-nya langsung. (Volume lama `postgres-db-volume` = PostgreSQL 13 dari era Airflow 2.8.1,
+  disimpan untuk rollback; boleh dihapus setelah upgrade stabil.)
+- **`AIRFLOW__API_AUTH__JWT_SECRET`** (`.env`) — harus sama di semua komponen; kalau berubah
+  cukup restart semua service (tidak ada data yang terenkripsi dengan kunci ini).
 - **`.env`** — backup terpisah di password manager/vault, BUKAN di dalam repo/volume
   yang sama dengan kode.
 - **`AIRFLOW__CORE__FERNET_KEY`** — kalau hilang/berubah, semua Variable/Connection
@@ -241,6 +247,8 @@ Metadata Airflow (history run, Variables) **tidak ikut ter-rollback** — itu ad
 volume Postgres terpisah dari kode. Kalau perlu rollback data juga, restore dari backup
 `pg_dump` di bagian 9.
 
+Rollback upgrade 2.8.1 → 3.4.0 punya langkah sendiri: lihat bagian 14.
+
 ## 12. Troubleshooting
 
 Lihat bagian **Troubleshooting** di [`README.md`](../README.md) untuk kasus umum (DAG
@@ -250,3 +258,71 @@ di-mount).
 ## 13. Contact
 
 Owner project: **data-team** — lahiardhan@jiwagroup.com
+
+## 14. Upgrade Airflow 2.8.1 → 3.4.0 (runbook sekali jalan)
+
+Sekali jalan, di jendela tanpa DAG aktif (17:30–01:50 WIB). Estimasi 30–45 menit. Selain
+image baru, metadata DB pindah dari PostgreSQL 13 ke 16 (Airflow 3.4 butuh PostgreSQL 14+):
+data dipindah dengan `pg_dump` / `pg_restore` ke volume baru `postgres16-db-volume`; volume
+lama `postgres-db-volume` **tidak disentuh** dan menjadi jalur rollback.
+
+Semua perintah dijalankan di folder repo pada server. **Urutan penting** — langkah 2 harus
+sebelum `git pull` (compose baru tidak mengenal service lama `airflow-webserver`).
+
+```bash
+# Persiapan (boleh siang hari, tidak mengganggu stack yang jalan): unduh base image ±2.4 GB
+docker pull apache/airflow:3.4.0-python3.11
+
+# 0. (DE) Semua DAG sudah di-pause di UI dan tidak ada run yang sedang jalan.
+
+# 1. Backup metadata DB (Airflow 2.8.1 / PostgreSQL 13 masih jalan)
+docker-compose exec -T postgres pg_dump -U airflow -Fc airflow > airflow_meta_pre_upgrade.dump
+ls -la airflow_meta_pre_upgrade.dump          # pastikan ukurannya > 0
+
+# 2. Matikan stack lama (TANPA -v)
+docker-compose down
+
+# 3. Ambil kode baru
+git pull origin main
+
+# 4. Tambah key baru ke .env (sekali saja). Diawali baris baru supaya tidak menempel ke
+#    baris terakhir kalau .env tidak diakhiri newline.
+printf '\nAIRFLOW__API_AUTH__JWT_SECRET=%s\n' "$(openssl rand -base64 32 | tr -d '\n=+/')" >> .env
+grep -c '^AIRFLOW__API_AUTH__JWT_SECRET=' .env      # harus 1
+
+# 5. Build image Airflow 3.4.0
+docker-compose build
+
+# 6. Nyalakan PostgreSQL 16 (volume baru, kosong) lalu restore backup
+docker-compose up -d postgres
+docker-compose ps postgres                    # tunggu sampai (healthy)
+docker-compose exec -T postgres pg_restore -U airflow -d airflow --exit-on-error < airflow_meta_pre_upgrade.dump
+
+# 7. Migrasi skema ke Airflow 3.4 — log harus berisi "Database migration done!" dan exit 0
+docker-compose up airflow-init
+
+# 8. Login user: Airflow 3 mencatat pen-trigger manual dari nama tampilan, bukan username.
+#    First name diisi email (last name kosong) supaya load_data_by tetap berisi email.
+docker-compose exec -T postgres psql -U airflow -c \
+  "UPDATE ab_user SET first_name = email, last_name = '' WHERE coalesce(email, '') <> ''"
+
+# 9. Nyalakan semua service; semua harus (healthy), airflow-init "Exit 0"
+docker-compose up -d
+docker-compose ps
+```
+
+Verifikasi (DE): `curl -f http://localhost:8080/api/v2/monitor/health`, login UI, 16 DAG tanpa
+import error (`docker-compose exec airflow-scheduler airflow dags list-import-errors`), Variables
+masih ada, lalu unpause DAG.
+
+**Rollback** (sebelum DAG di-unpause — state kembali persis seperti sebelum upgrade):
+
+```bash
+docker-compose down                           # TANPA -v
+git checkout <commit sebelum merge upgrade>
+docker-compose build
+docker-compose up -d                          # compose lama memakai lagi volume PostgreSQL 13
+```
+
+Kalau rollback dilakukan **setelah** DAG sempat jalan di 3.4, DB lama belum tahu run tersebut:
+unpause DAG satu per satu setelah cek, karena scheduler bisa menjalankan ulang run hari itu.

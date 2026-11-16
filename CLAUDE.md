@@ -74,9 +74,16 @@ Lihat `plugins/common/pipeline_loader.py` untuk penjelasan lengkap.
   `run_all()`. Pengecualian: `sjw_riders_mapping` (2 task berantai),
   `iseller_mitra_cleaning` (sensor `wait_mitra_fulfillment` → `run_pipeline`: harus menunggu
   `etl_iseller_mitra_fulfillment` selesai menulis Data Lake sebelum DELETE + re-dump; sensor mode
-  `reschedule` supaya menunggu tanpa menduduki worker slot — jangan digabung jadi satu task), dan
+  `reschedule` supaya menunggu tanpa menduduki worker slot — jangan digabung jadi satu task),
+  `iseller_mitra_fulfillment` (`run_pipeline` → `check_cleaning_rerun` → `rerun_mitra_cleaning`:
+  kalau cleaning hari itu sudah jalan tanpa menunggu karena fulfillment sempat paused, cleaning
+  di-trigger ulang setelah fulfillment selesai; run hasil trigger ini bertipe `operator_triggered`
+  dan diperlakukan seperti manual oleh DAG cleaning), dan
   `maintenance_log_cleanup` (7 task). Jangan buat DAG multi-task baru kecuali ada
   alasan sekuat itu.
+- **Airflow 3: task tidak boleh akses metadata DB Airflow** (`create_session`, `DagRun.find`,
+  query tabel `log`/`ab_user`, dll. diblok). Info antar-DAG diambil lewat API task instance
+  (`ti.get_dag`, `ti.get_dr_count`, `ti.get_ti_count`) — contoh di sensor `iseller_mitra_cleaning`.
 - **Date window "kemarin" (H-1) di Asia/Jakarta**, dihitung via helper
   `_target_date_yesterday_jakarta()` (atau `_target_end_date_yesterday_jakarta()`):
   ambil `data_interval_end` (fallback `logical_date`), convert ke `Asia/Jakarta`,
@@ -153,10 +160,12 @@ jadi tetap memakai email operator sebagai `load_data_by`. Aturan `NEXUS_AIRFLOW`
 atas hanya berlaku untuk file `.py` yang berjalan di scheduler Airflow.
 
 **Pengecualian kedua — trigger manual dari UI Airflow:** run dengan
-`dag_run.run_type == "manual"` memakai email user Airflow yang men-trigger (dicari
-lewat `common.airflow_trigger_user.get_manual_trigger_user(dag_run)`: tabel `log` →
-`ab_user`; fallback `MANUAL_AIRFLOW` kalau tidak ketemu, mis. trigger lewat CLI/API).
-Run otomatis (`scheduled` / `dataset_triggered`) tetap `NEXUS_AIRFLOW`. Saat ini
+`dag_run.run_type == "manual"` memakai email user Airflow yang men-trigger, lewat
+`common.airflow_trigger_user.get_manual_trigger_user(dag_run)` yang membaca
+`dag_run.triggering_user_name`. Di Airflow 3 nilai itu = nama tampilan user ("first name last
+name"), jadi **setiap user Airflow diisi first name = email dan last name kosong**. Fallback
+`MANUAL_AIRFLOW` kalau nilainya bukan email (mis. trigger lewat CLI → user unix `airflow`).
+Run otomatis (`scheduled` / `asset_triggered`) tetap `NEXUS_AIRFLOW`. Saat ini
 dipakai oleh `api_integration_landlord_01065` dan `api_integration_landlord_00570`.
 Jangan hardcode email personal di kode DAG untuk keperluan ini.
 

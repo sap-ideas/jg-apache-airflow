@@ -1,6 +1,6 @@
 # Airflow ETL Pipeline - Data Team
 
-Automated ETL pipelines untuk iSeller, KSJ Link riders mapping, dan maintenance — berjalan di Apache Airflow 2.8.1 dengan Docker Compose.
+Automated ETL pipelines untuk iSeller, KSJ Link riders mapping, dan maintenance — berjalan di Apache Airflow 3.4.0 dengan Docker Compose.
 
 > Mau nambah/ubah pipeline setelah production live? Baca
 > [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) dulu (git branch flow, local vs
@@ -50,7 +50,7 @@ Selesai. DAGs akan muncul di UI dalam beberapa menit.
 | `./status_airflow.sh` | Cek status service & volumes |
 | `./logs_airflow.sh` | Live log semua service |
 | `./logs_airflow.sh airflow-scheduler` | Live log scheduler saja |
-| `docker-compose restart airflow-scheduler airflow-webserver` | Restart service tertentu |
+| `docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor` | Restart service tertentu |
 
 ---
 
@@ -167,7 +167,7 @@ access_token_pusat=YOUR_TOKEN_HERE
 2. Edit file `.env`, ganti value `access_token_pusat`
 3. Restart Airflow supaya environment variable ter-load ulang:
    ```bash
-   docker-compose restart airflow-scheduler airflow-webserver
+   docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor
    ```
 
 **Kalau token expired saat pipeline berjalan:**
@@ -243,11 +243,11 @@ docker-compose restart airflow-scheduler
 
 ```bash
 # Re-install dependencies di kedua container
-docker-compose exec airflow-webserver pip install -r /opt/airflow/requirements.txt
+docker-compose exec airflow-apiserver pip install -r /opt/airflow/requirements.txt
 docker-compose exec airflow-scheduler pip install -r /opt/airflow/requirements.txt
 
 # Restart
-docker-compose restart airflow-scheduler airflow-webserver
+docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor
 ```
 
 ### Database connection error
@@ -285,7 +285,7 @@ nano .env
 # Ganti value access_token_pusat
 
 # 2. Restart supaya env variable ter-load
-docker-compose restart airflow-scheduler airflow-webserver
+docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor
 
 # 3. Trigger ulang DAG dari UI atau CLI
 docker-compose exec airflow-scheduler airflow dags trigger etl_iseller_pusat_fulfillment
@@ -308,7 +308,7 @@ docker-compose down -v
 
 | Component | Version |
 |-----------|---------|
-| Apache Airflow | 2.8.1 |
+| Apache Airflow | 3.4.0 |
 | Python | 3.11 |
 | PostgreSQL (metadata) | 13 |
 | MySQL (Data Lake & DWH) | Remote server |

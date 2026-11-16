@@ -55,7 +55,7 @@ with DAG(
     dag_id="f_ksj_ondemand_order_summary",
     default_args=default_args,
     description="ETL KSJ On-Demand Order Summary: straight-line vs route distance & delivery timing per order",
-    schedule_interval="0 9,12,15,17 * * *",  # 4x/day @ 09:00, 12:00, 15:00, 17:00 Asia/Jakarta
+    schedule="0 9,12,15,17 * * *",  # 4x/day @ 09:00, 12:00, 15:00, 17:00 Asia/Jakarta
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "ksj-link", "on-demand", "order-distance", "dwh", "production"],

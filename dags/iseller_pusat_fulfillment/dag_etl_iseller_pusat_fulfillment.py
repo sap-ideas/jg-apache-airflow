@@ -93,7 +93,7 @@ with DAG(
     dag_id="etl_iseller_pusat_fulfillment",
     default_args=default_args,
     description="ETL iSeller Pusat: Backfill fulfillment, then re-dump 8 DWH summary tables",
-    schedule_interval="0 9 * * *",
+    schedule="0 9 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "pusat", "dwh", "production"],

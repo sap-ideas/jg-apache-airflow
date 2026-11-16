@@ -11,7 +11,7 @@ File: `dag_etl_f_rider_mangkal_summary.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `f_rider_mangkal_summary` |
-| `schedule_interval` | `"0 8,11,15 * * *"` — 08:00, 11:00, 15:00 Asia/Jakarta |
+| `schedule` | `"0 8,11,15 * * *"` — 08:00, 11:00, 15:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

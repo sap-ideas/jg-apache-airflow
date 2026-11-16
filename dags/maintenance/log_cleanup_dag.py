@@ -4,8 +4,8 @@ Airflow Maintenance DAG - Log and Database Cleanup
 
 Purpose:
     Automated maintenance tasks for Airflow to keep system healthy:
-    - Clean up old log files (> 30 days)
-    - Clean up old DAG runs from database (> 60 days)
+    - Clean up old log files (> 180 days)
+    - Clean up old DAG runs from database (> 180 days)
     - Monitor disk usage
     - Generate cleanup reports
 
@@ -40,8 +40,8 @@ default_args = {
 local_tz = pendulum.timezone("Asia/Jakarta")
 
 # Retention settings (should match docker-compose.yaml)
-LOG_RETENTION_DAYS = 7  # Delete logs older than 7 days
-DAG_RUN_RETENTION_DAYS = 30  # Delete DAG runs older than 30 days
+LOG_RETENTION_DAYS = 180  # Delete logs older than 180 days (~6 months)
+DAG_RUN_RETENTION_DAYS = 180  # Delete DAG runs older than 180 days (keeps old logs viewable in the UI)
 
 
 # ============================================================
@@ -104,7 +104,7 @@ with DAG(
     dag_id='maintenance_log_cleanup',
     default_args=default_args,
     description='Weekly automated cleanup of Airflow logs and database records',
-    schedule_interval='0 2 * * 0',  # Every Sunday at 2 AM
+    schedule='0 2 * * 0',  # Every Sunday at 2 AM
     start_date=datetime(2024, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=['maintenance', 'cleanup', 'monitoring', 'system'],
@@ -195,8 +195,8 @@ with DAG(
         echo "📅 Cutoff date: $CUTOFF_DATE"
         echo ""
         
-        # Run Airflow db cleanup
-        airflow db clean \\
+        # Run Airflow db cleanup (Airflow 3 blanks the DB connection inside tasks; pass it explicitly)
+        AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="$AIRFLOW_METADATA_DB_CONN" airflow db clean \\
             --clean-before-timestamp "$CUTOFF_DATE" \\
             --skip-archive \\
             --yes \\

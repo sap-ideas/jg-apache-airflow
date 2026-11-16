@@ -120,7 +120,7 @@ with DAG(
         "Daily ETL: send yesterday's revenue (jilid 01065) to the Lippo Mall Puri "
         "Revenue API and log results to the Data Lake."
     ),
-    schedule_interval="0 10 * * *",  # 10:00 Asia/Jakarta
+    schedule="0 10 * * *",  # 10:00 Asia/Jakarta
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["api", "landlord", "revenue-sharing", "lippomall", "production"],

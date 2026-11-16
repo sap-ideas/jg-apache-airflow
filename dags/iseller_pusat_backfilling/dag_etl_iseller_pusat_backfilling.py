@@ -87,7 +87,7 @@ with DAG(
     dag_id="etl_iseller_pusat_backfilling",
     default_args=default_args,
     description="ETL iSeller Pusat: backfilling order yang tidak ada di Data Lake (H-8 s/d H-7), Data Lake only",
-    schedule_interval="50 1 * * *",
+    schedule="50 1 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "pusat", "backfilling", "datalake", "production"],
