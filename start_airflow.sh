@@ -35,7 +35,7 @@ sleep 10
 # Install Python dependencies (requirements.txt mounted at /opt/airflow/requirements.txt)
 echo "📦 Installing Python dependencies..."
 if docker-compose exec -T airflow-scheduler test -f /opt/airflow/requirements.txt 2>/dev/null; then
-  docker-compose exec -T airflow-webserver python -m pip install -q -r /opt/airflow/requirements.txt
+  docker-compose exec -T airflow-apiserver python -m pip install -q -r /opt/airflow/requirements.txt
   docker-compose exec -T airflow-scheduler python -m pip install -q -r /opt/airflow/requirements.txt
 else
   echo "   ⚠️  /opt/airflow/requirements.txt not found in container — add volume in docker-compose.yaml"

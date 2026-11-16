@@ -9,7 +9,8 @@
 # Ignoring them here does NOT affect the dag_*.py files that import them --
 # .airflowignore only controls DAG discovery, not Python imports.
 #
-# Syntax is regex (AIRFLOW__CORE__DAG_IGNORE_FILE_SYNTAX defaults to "regexp").
+# Syntax is glob (Airflow 3 default for AIRFLOW__CORE__DAG_IGNORE_FILE_SYNTAX); these patterns
+# match the same folders under the old "regexp" syntax too.
 
 pipelines/
 common/

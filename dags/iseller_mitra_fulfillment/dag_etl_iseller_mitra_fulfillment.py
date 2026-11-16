@@ -10,6 +10,8 @@ must never run while this DAG is writing to the same Data Lake tables.
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import ShortCircuitOperator
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from datetime import datetime, timedelta
 import pendulum
 import os
@@ -74,6 +76,35 @@ def run_pipeline(**context):
     )
 
 
+MITRA_CLEANING_DAG_ID = "etl_iseller_mitra_cleaning"
+# Cleaning jalan 07:51 -> logical date cleaning 1 menit SETELAH logical date DAG ini
+# (pasangan FULFILLMENT_RUNS_BEFORE_THIS di DAG cleaning; kalau jadwal diubah, ubah keduanya).
+CLEANING_RUNS_AFTER_THIS = timedelta(minutes=1)
+
+
+def _cleaning_date_to_rerun(dag_run, logical_date, ti, **context):
+    """Tanggal (H-1) untuk re-run cleaning Mitra, atau None kalau tidak perlu.
+
+    Normalnya sensor cleaning masih menunggu run ini, jadi tidak perlu apa-apa. Kalau DAG ini sempat
+    paused, sensor cleaning hari itu sudah lolos tanpa menunggu; begitu DAG ini dinyalakan lagi dan
+    run-nya selesai, cleaning diulang supaya ikut membersihkan data hasil fulfillment.
+    """
+    if dag_run.run_type == "manual":
+        return None
+    cleaning_passed = ti.get_ti_count(
+        dag_id=MITRA_CLEANING_DAG_ID,
+        task_ids=["wait_mitra_fulfillment"],
+        logical_dates=[logical_date + CLEANING_RUNS_AFTER_THIS],
+        states=["success"],
+    )
+    if not cleaning_passed:
+        print(f"  {MITRA_CLEANING_DAG_ID} masih menunggu / tidak jalan -> tidak perlu re-run")
+        return None
+    target_date = _target_end_date_yesterday_jakarta(logical_date=logical_date, **context)
+    print(f"  {MITRA_CLEANING_DAG_ID} sudah jalan tanpa menunggu run ini -> re-run cleaning {target_date}")
+    return target_date
+
+
 default_args = {
     'owner': 'data-team',
     'depends_on_past': False,
@@ -87,7 +118,7 @@ with DAG(
     dag_id="etl_iseller_mitra_fulfillment",
     default_args=default_args,
     description="ETL iSeller Mitra: Backfill fulfillment ke Data Lake (tanpa redump DWH), jalan sebelum Mitra cleaning",
-    schedule_interval="50 7 * * *",
+    schedule="50 7 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "fulfillment", "datalake", "production"],
@@ -110,8 +141,25 @@ with DAG(
     },
 ) as dag:
 
-    PythonOperator(
+    run = PythonOperator(
         task_id="run_pipeline",
         python_callable=run_pipeline,
         execution_timeout=timedelta(hours=3),
     )
+
+    check_cleaning = ShortCircuitOperator(
+        task_id="check_cleaning_rerun",
+        python_callable=_cleaning_date_to_rerun,
+    )
+
+    rerun_cleaning = TriggerDagRunOperator(
+        task_id="rerun_mitra_cleaning",
+        trigger_dag_id=MITRA_CLEANING_DAG_ID,
+        conf={
+            "run_mode": "full",
+            "start_date": "{{ ti.xcom_pull(task_ids='check_cleaning_rerun') }}",
+            "end_date": "{{ ti.xcom_pull(task_ids='check_cleaning_rerun') }}",
+        },
+    )
+
+    run >> check_cleaning >> rerun_cleaning

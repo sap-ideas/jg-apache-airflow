@@ -9,11 +9,10 @@ fulfillment appends to transactions_items_iseller_mitra, and cleaning must not D
 that table while fulfillment is still writing to it.
 """
 from airflow import DAG
-from airflow.models import DagModel, DagRun
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
 from airflow.sensors.python import PythonSensor
-from airflow.utils.state import State
+from airflow.sdk.exceptions import AirflowRuntimeError
 from datetime import datetime, timedelta
 import pendulum
 import sys
@@ -58,18 +57,32 @@ MITRA_FULFILLMENT_DAG_ID = "etl_iseller_mitra_fulfillment"
 FULFILLMENT_RUNS_BEFORE_THIS = timedelta(minutes=1)
 
 
-def _mitra_fulfillment_finished(dag_run, logical_date, **_):
+# Run manual dari UI = "manual"; re-run yang dipicu DAG fulfillment (TriggerDagRunOperator) = "operator_triggered".
+# Keduanya memakai tanggal dari params/conf dan tidak menunggu fulfillment.
+MANUAL_RUN_TYPES = ("manual", "operator_triggered")
+
+
+def _mitra_fulfillment_finished(dag_run, logical_date, ti, **_):
     """True kalau run fulfillment Mitra hari yang sama sudah selesai (sukses atau gagal)."""
-    if dag_run.run_type == "manual":
+    if dag_run.run_type in MANUAL_RUN_TYPES:
         return True  # trigger manual tidak ikut menunggu
-    fulfillment = DagModel.get_dagmodel(MITRA_FULFILLMENT_DAG_ID)
-    if fulfillment is None or fulfillment.is_paused:
+    # Airflow 3: task tidak boleh akses metadata DB langsung -> lewat API task instance
+    try:
+        paused = ti.get_dag(MITRA_FULFILLMENT_DAG_ID).is_paused
+    except AirflowRuntimeError as e:
+        if (e.error.detail or {}).get("status_code") != 404:
+            raise
+        paused = True  # DAG fulfillment tidak ada
+    if paused:
         print(f"  {MITRA_FULFILLMENT_DAG_ID} tidak ada / paused -> tidak ditunggu")
         return True
-    runs = DagRun.find(dag_id=MITRA_FULFILLMENT_DAG_ID, execution_date=logical_date - FULFILLMENT_RUNS_BEFORE_THIS)
-    state = runs[0].state if runs else None
-    print(f"  {MITRA_FULFILLMENT_DAG_ID} state: {state}")
-    return state in (State.SUCCESS, State.FAILED)
+    finished = ti.get_dr_count(
+        dag_id=MITRA_FULFILLMENT_DAG_ID,
+        logical_dates=[logical_date - FULFILLMENT_RUNS_BEFORE_THIS],
+        states=["success", "failed"],
+    )
+    print(f"  {MITRA_FULFILLMENT_DAG_ID} selesai: {bool(finished)}")
+    return finished > 0
 
 
 RUN_MODES = ["full", "datalake_only", "dwh_only"]
@@ -84,7 +97,7 @@ def run_pipeline(**context):
     if run_mode not in RUN_MODES:
         raise ValueError(f"run_mode must be one of {RUN_MODES}, got {run_mode!r}")
 
-    if context["dag_run"].run_type == "manual":
+    if context["dag_run"].run_type in MANUAL_RUN_TYPES:
         start_date, end_date = params["start_date"], params["end_date"]
         if start_date > end_date:
             raise ValueError(f"start_date ({start_date}) tidak boleh setelah end_date ({end_date})")
@@ -116,7 +129,7 @@ with DAG(
     dag_id="etl_iseller_mitra_cleaning",
     default_args=default_args,
     description="ETL iSeller Mitra: Check duplicates, clean DL, re-dump 5 DWH summary tables",
-    schedule_interval="51 7 * * *",
+    schedule="51 7 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "dwh", "production"],

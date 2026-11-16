@@ -64,7 +64,7 @@ with DAG(
     dag_id="f_hourly_rider_performance_tito",
     default_args=default_args,
     description="ETL Hourly Rider Performance TI-TO: build hourly_sejutajiwa_rider_performance from KSJ Link sources",
-    schedule_interval="0 8 * * *",  # 08:00 Asia/Jakarta
+    schedule="0 8 * * *",  # 08:00 Asia/Jakarta
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "riders", "performance", "tito", "ksj-link", "dwh", "production"],

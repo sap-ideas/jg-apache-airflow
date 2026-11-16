@@ -10,7 +10,7 @@ File: `dag_api_landlord_revenue_sharing_01065.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `api_landlord_revenue_sharing_01065` |
-| `schedule_interval` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
+| `schedule` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

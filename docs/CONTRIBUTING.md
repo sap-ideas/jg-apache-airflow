@@ -85,7 +85,7 @@ flowchart TD
         direction TB
         G["Merge into main"]
         X{{"⚠️ New env vars?<br/>Compare .env.example<br/>vs. server .env"}}
-        X1["Add missing keys to server .env<br/>+ restart scheduler &amp; webserver"]
+        X1["Add missing keys to server .env<br/>+ restart scheduler, apiserver &amp; dag-processor"]
         H["Pull the latest code<br/>git pull origin main<br/>on the production server"]
         I["New DAG appears<br/>PAUSED by default"]
         J["Verify: check import errors<br/>and run a manual test"]
@@ -174,7 +174,7 @@ before merging") supaya nggak ada yang (termasuk diri sendiri kepencet) push lan
    isi `.env` yang sungguhan ada di server. `.env` **tidak pernah ikut `git pull`**
    (gitignored) — jadi key baru yang kamu tambahkan ke `.env.example` TIDAK otomatis
    muncul di server, harus ditambahkan manual ke `.env` server + restart
-   (`docker-compose restart airflow-scheduler airflow-webserver`). Lewatin langkah ini
+   (`docker-compose restart airflow-scheduler airflow-apiserver airflow-dag-processor`). Lewatin langkah ini
    = DAG baru bakal gagal jalan pertama kali dengan error "Missing ... in .env" (pernah
    kejadian beneran, 2026-09-23, pada `api_landlord_revenue_sharing_01065` setelah
    migrasi credential ke env — root cause-nya persis ini).

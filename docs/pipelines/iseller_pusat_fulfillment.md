@@ -10,7 +10,7 @@ File: `dag_etl_iseller_pusat_fulfillment.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_pusat_fulfillment` |
-| `schedule_interval` | `"0 9 * * *"` — harian 09:00 Asia/Jakarta |
+| `schedule` | `"0 9 * * *"` — harian 09:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

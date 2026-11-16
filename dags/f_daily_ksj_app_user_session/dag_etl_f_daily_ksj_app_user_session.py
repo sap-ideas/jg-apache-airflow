@@ -64,7 +64,7 @@ with DAG(
     dag_id="f_daily_ksj_app_user_session",
     default_args=default_args,
     description="ETL Daily KSJ Consumer App User Session: build daily_ksj_consumer_app_user_session from JiwaPlus and KSJ Link",
-    schedule_interval="0 6 * * *",  # 06:00 Asia/Jakarta
+    schedule="0 6 * * *",  # 06:00 Asia/Jakarta
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "ksj", "consumer-app", "user-session", "jiwaplus", "dwh", "production"],

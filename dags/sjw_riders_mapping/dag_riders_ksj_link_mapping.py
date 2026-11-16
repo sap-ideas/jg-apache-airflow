@@ -6,7 +6,8 @@ Runs two ownership segments (KBN and MITRA) through the same pipeline,
 identified by transactions.ownership_status, into their own tables.
 PostgreSQL sync is handled by a separate DAG (sync_sejutajiwa_riders_hubs_to_postgresql).
 """
-from airflow import DAG, Dataset
+from airflow import DAG
+from airflow.sdk import Asset
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
@@ -81,7 +82,7 @@ PG_MAPPING_TABLE_MITRA = "d_sejutajiwa_riders_hubs_mapping_mitra"
 UPDATED_BY = "NEXUS_AIRFLOW"
 
 # Dataset: triggers PostgreSQL sync DAG when this ETL completes
-DATASET_MYSQL_UPDATED = Dataset("sejutajiwa_riders_hubs_mapping://mysql_updated")
+DATASET_MYSQL_UPDATED = Asset("sejutajiwa_riders_hubs_mapping://mysql_updated")
 
 # ==================== ETL PIPELINE ====================
 def run_pipeline(*, ownership_status, mysql_table, pg_mapping_table, label, get_hub_df):
@@ -248,7 +249,7 @@ with DAG(
     dag_id="etl_sejutajiwa_riders_ksj_link_mapping",
     default_args=default_args,
     description="ETL: Sejutajiwa Riders - KSJ Link Mapping (MySQL Lake + Warehouse)",
-    schedule_interval="0 8 * * *",  # Daily at 8 AM Jakarta time
+    schedule="0 8 * * *",  # Daily at 8 AM Jakarta time
     start_date=datetime(2024, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["dimension", "ksj-link", "master-data", "production"],

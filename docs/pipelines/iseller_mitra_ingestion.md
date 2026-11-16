@@ -17,7 +17,7 @@ File: `dag_etl_iseller_mitra_ingestion.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_mitra_ingestion` |
-| `schedule_interval` | `"0 6 * * *"` — harian 06:00 Asia/Jakarta |
+| `schedule` | `"0 6 * * *"` — harian 06:00 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

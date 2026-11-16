@@ -17,7 +17,7 @@ File: `dag_etl_iseller_mitra_backfilling.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_mitra_backfilling` |
-| `schedule_interval` | `"10 6 * * *"` — harian 06:10 Asia/Jakarta (setelah ingest harian ~06:08) |
+| `schedule` | `"10 6 * * *"` — harian 06:10 Asia/Jakarta (setelah ingest harian ~06:08) |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

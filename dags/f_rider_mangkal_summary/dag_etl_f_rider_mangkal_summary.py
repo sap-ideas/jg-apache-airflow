@@ -50,7 +50,7 @@ with DAG(
     dag_id="f_rider_mangkal_summary",
     default_args=default_args,
     description="ETL Rider Mangkal Summary: build daily_rider_mangkal_session_summary from KSJ Link sources",
-    schedule_interval="0 8,11,15 * * *",  # 3x/day @ 08:00, 11:00, 15:00 Asia/Jakarta
+    schedule="0 8,11,15 * * *",  # 3x/day @ 08:00, 11:00, 15:00 Asia/Jakarta
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "riders", "mangkal", "ksj-link", "dwh", "production"],

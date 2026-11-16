@@ -12,7 +12,8 @@ Data scope: one day — the date processed by the triggering f_daily_estimated_i
             the `start_date` / `end_date` params (up to 31 days).
 """
 
-from airflow import DAG, Dataset
+from airflow import DAG
+from airflow.sdk import Asset
 from airflow.exceptions import AirflowFailException
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
@@ -51,7 +52,7 @@ def _load_config(config_path):
 CONFIG_DW = _load_config("/opt/airflow/config/config_db_datawarehouse.py")
 
 # Must match the outlet declared in f_daily_estimated_income_per_store DAG
-DATASET_DAILY_EST_INCOME = Dataset("f_daily_estimated_income_per_store://daily_est_income_per_store_for_landlord")
+DATASET_DAILY_EST_INCOME = Asset("f_daily_estimated_income_per_store://daily_est_income_per_store_for_landlord")
 
 
 # ---------------------------------------------------------------------------

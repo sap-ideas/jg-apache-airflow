@@ -2,19 +2,20 @@
 # Airflow already includes: pandas, sqlalchemy
 
 # MySQL connectivity
-mysql-connector-python==8.2.0
-pymysql==1.1.0
+mysql-connector-python==26.10.0
+pymysql==1.1.3
 
 # PostgreSQL connectivity
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.13
 
 # Timezone support
-pendulum==3.0.0
+pendulum==3.3.0
 
 # Load .env for config modules when run outside Docker (notebooks, manual scripts)
-python-dotenv==1.0.1
+python-dotenv==1.2.4
 
 # HTTP (Teams / Power Automate webhooks)
 requests>=2.31.0
 
-
+# Pandas 3 (default di image Airflow 3.4) sengaja di-hold: tetap 2.x
+pandas==2.3.3

@@ -94,11 +94,11 @@ count_log_files() {
     # Count by age
     LOGS_7_DAYS=$(find "$LOG_DIR" -type f -name "*.log" -mtime -7 2>/dev/null | wc -l)
     LOGS_30_DAYS=$(find "$LOG_DIR" -type f -name "*.log" -mtime -30 2>/dev/null | wc -l)
-    LOGS_OLD=$(find "$LOG_DIR" -type f -name "*.log" -mtime +30 2>/dev/null | wc -l)
+    LOGS_OLD=$(find "$LOG_DIR" -type f -name "*.log" -mtime +180 2>/dev/null | wc -l)
     
     echo "  Last 7 days: $LOGS_7_DAYS files"
     echo "  Last 30 days: $LOGS_30_DAYS files"
-    echo "  Older than 30 days: $LOGS_OLD files"
+    echo "  Older than 180 days: $LOGS_OLD files"
     
     if [ "$LOGS_OLD" -gt 0 ]; then
         echo -e "${YELLOW}  ⚠️  Consider cleanup for old logs${NC}"
@@ -139,7 +139,7 @@ show_recommendations() {
     
     SIZE_BYTES=$(du -sb "$LOG_DIR" 2>/dev/null | cut -f1)
     SIZE_GB=$(echo "scale=2; $SIZE_BYTES / 1024 / 1024 / 1024" | bc)
-    LOGS_OLD=$(find "$LOG_DIR" -type f -name "*.log" -mtime +30 2>/dev/null | wc -l)
+    LOGS_OLD=$(find "$LOG_DIR" -type f -name "*.log" -mtime +180 2>/dev/null | wc -l)
     
     if (( $(echo "$SIZE_GB > 5" | bc -l) )); then
         echo "  📌 Storage usage high (${SIZE_GB} GB)"
@@ -147,20 +147,20 @@ show_recommendations() {
     fi
     
     if [ "$LOGS_OLD" -gt 100 ]; then
-        echo "  📌 Many old log files ($LOGS_OLD files > 30 days)"
-        echo "     Run: find /root/repository/logs -name '*.log' -mtime +30 -delete"
+        echo "  📌 Many old log files ($LOGS_OLD files > 180 days)"
+        echo "     Run: find /root/repository/logs -name '*.log' -mtime +180 -delete"
     fi
     
     echo "  📌 Automatic cleanup enabled via:"
-    echo "     - docker-compose.yaml: LOG_RETENTION_DAYS=30"
+    echo "     - docker-compose.yaml: LOG_RETENTION_DAYS=180"
     echo "     - Maintenance DAG: Runs weekly on Sunday"
     
     echo ""
     echo "  📌 Manual cleanup commands:"
     echo "     cd /root/repository"
-    echo "     find logs -name '*.log' -mtime +30 -delete  # Delete > 30 days"
+    echo "     find logs -name '*.log' -mtime +180 -delete  # Delete > 180 days"
     echo "     docker-compose exec airflow-scheduler airflow db clean \\"
-    echo "       --clean-before-timestamp \$(date -d '60 days ago' +%Y-%m-%d) -y"
+    echo "       --clean-before-timestamp \$(date -d '180 days ago' +%Y-%m-%d) -y"
 }
 
 print_footer() {

@@ -1,6 +1,6 @@
 # `sjw_riders_mapping` — Mapping Rider KSJ Link
 
-Folder ini berisi **2 DAG** yang saling terhubung lewat Airflow **Dataset**
+Folder ini berisi **2 DAG** yang saling terhubung lewat Airflow **Asset** (dulu: Dataset)
 (bukan `TriggerDagRunOperator` atau cron terpisah) — DAG kedua otomatis jalan
 begitu DAG pertama selesai update data.
 
@@ -14,7 +14,7 @@ begitu DAG pertama selesai update data.
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_sejutajiwa_riders_ksj_link_mapping` |
-| `schedule_interval` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
+| `schedule` | `"0 8 * * *"` — harian 08:00 Asia/Jakarta |
 | `start_date` | `datetime(2024, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |
@@ -47,7 +47,7 @@ TRANSFORM (transform_ksj_link.py :: transform_ksj_link())
 LOAD (load.py :: append_only_ignore_duplicates()) — TRIPLE DESTINATION:
   1. MySQL Data Lake      (data_lake_jiwa.sejutajiwa_riders_hubs_mapping)      — INSERT IGNORE
   2. MySQL Data Warehouse (data_warehouse_jiwa.sejutajiwa_riders_hubs_mapping)— INSERT IGNORE
-  3. (via DAG 2, terpicu Dataset) PostgreSQL KSJ Link                         — ON CONFLICT DO NOTHING
+  3. (via DAG 2, terpicu Asset) PostgreSQL KSJ Link                         — ON CONFLICT DO NOTHING
 
 NOTIFIKASI (send_teams_and_email_notification)
   ├─ fetch_riders_mapping_summary() — SQL di sql/riders_mapping_teams_summary.sql
@@ -57,19 +57,19 @@ NOTIFIKASI (send_teams_and_email_notification)
 
 Kolom yang di-insert: `hub_id, jilid, hub_name, rider_id, cart_id, rider_name, status, scheme, phone_number, cashier_id, updated_by`.
 
-### Cross-DAG trigger via Dataset
+### Cross-DAG trigger via Asset
 
 `run_pipeline` mendeklarasikan `outlets=[DATASET_MYSQL_UPDATED]` dengan
-`DATASET_MYSQL_UPDATED = Dataset("sejutajiwa_riders_hubs_mapping://mysql_updated")`.
+`DATASET_MYSQL_UPDATED = Asset("sejutajiwa_riders_hubs_mapping://mysql_updated")`.
 Setiap kali task ini sukses, Airflow otomatis men-trigger DAG 2 di bawah — **tidak** ada
-`TriggerDagRunOperator` eksplisit, murni fitur Dataset-scheduling Airflow 2.4+.
+`TriggerDagRunOperator` eksplisit, murni fitur Asset-scheduling Airflow 3 (dulu Dataset di Airflow 2).
 
 ## DAG 2: `dag_sync_postgresql.py`
 
 | Field | Nilai |
 |---|---|
 | `dag_id` | `sync_sejutajiwa_riders_hubs_to_postgresql` |
-| `schedule` | `[DATASET_MYSQL_UPDATED]` — **bukan cron**, dipicu Dataset dari DAG 1 |
+| `schedule` | `[DATASET_MYSQL_UPDATED]` — **bukan cron**, dipicu Asset dari DAG 1 |
 | `start_date` | `datetime(2024, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

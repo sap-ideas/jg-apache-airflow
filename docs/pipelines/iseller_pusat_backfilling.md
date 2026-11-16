@@ -15,7 +15,7 @@ File: `dag_etl_iseller_pusat_backfilling.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_pusat_backfilling` |
-| `schedule_interval` | `"50 1 * * *"` — harian 01:50 Asia/Jakarta |
+| `schedule` | `"50 1 * * *"` — harian 01:50 Asia/Jakarta |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |

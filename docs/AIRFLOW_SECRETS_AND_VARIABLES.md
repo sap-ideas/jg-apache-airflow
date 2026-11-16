@@ -23,7 +23,7 @@
    AIRFLOW__CORE__FERNET_KEY=<<paste the key here>>
    ```
 
-3. **Restart** all Airflow services so they load the new env (scheduler, webserver, triggerer, etc.).
+3. **Restart** all Airflow services so they load the new env (scheduler, apiserver, dag-processor, triggerer).
 
 4. In the Airflow UI, if you still see a warning like *“empty cryptography key”* when running `airflow variables set`, the running container does not have `AIRFLOW__CORE__FERNET_KEY` set — fix env + restart.
 
@@ -81,8 +81,8 @@ The stock `apache/airflow` image does not ship every driver your DAGs use (e.g. 
 
 This repo **bakes** dependencies from `requirements.txt` into a small custom image:
 
-- `Dockerfile.airflow` (extends `apache/airflow:2.8.1-python3.11` and runs `pip install -r requirements.txt` as user `airflow`)
-- `docker-compose.yaml` points all Airflow services at image **`airflow-nexus:2.8.1-python3.11`**
+- `Dockerfile.airflow` (extends `apache/airflow:3.4.0-python3.11` and runs `pip install -r requirements.txt` as user `airflow`)
+- `docker-compose.yaml` points all Airflow services at image **`airflow-nexus:3.4.0-python3.11`**
 
 **Why not `_PIP_ADDITIONAL_REQUIREMENTS`?** On Airflow 2.8, the init/bootstrap path can fail when it tries to `pip install` as **root**; building the image is the approach recommended in the Airflow Docker docs.
 
@@ -90,6 +90,7 @@ After you change `requirements.txt`, rebuild and recreate:
 
 ```bash
 docker-compose build
+docker-compose down     # without -v; avoids the ContainerConfig error below
 docker-compose up -d
 ```
 

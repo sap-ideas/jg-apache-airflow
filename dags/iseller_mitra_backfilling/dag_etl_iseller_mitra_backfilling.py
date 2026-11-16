@@ -87,7 +87,7 @@ with DAG(
     dag_id="etl_iseller_mitra_backfilling",
     default_args=default_args,
     description="ETL iSeller Mitra: backfilling order yang tidak ada di Data Lake (H-8 s/d H-7), Data Lake only",
-    schedule_interval="10 6 * * *",
+    schedule="10 6 * * *",
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "backfilling", "datalake", "production"],
