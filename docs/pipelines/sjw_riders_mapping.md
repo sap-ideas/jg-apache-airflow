@@ -4,7 +4,7 @@ Folder ini berisi **2 DAG** yang saling terhubung lewat Airflow **Asset** (dulu:
 (bukan `TriggerDagRunOperator` atau cron terpisah) — DAG kedua otomatis jalan
 begitu DAG pertama selesai update data.
 
-> Folder `dags/sjw_riders_mapping/__pycache__/` menyimpan bytecode sisa modul lama
+> Folder `dags/ksj_rider_operations/sjw_riders_mapping/__pycache__/` menyimpan bytecode sisa modul lama
 > (`dag_riders_hubs_mapping.py`, `extract_gsheets_hubs_mapping.py`, `extract_missing_riders.py`,
 > `postgres_helpers.py`, `transform.py`) yang sumbernya sudah tidak ada — jejak refactor dari
 > sumber data Google Sheets ke KSJ Link PostgreSQL. Bukan bagian dari DAG aktif.

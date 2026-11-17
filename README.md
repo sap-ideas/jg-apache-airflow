@@ -71,20 +71,26 @@ repository/
 │   ├── config_db_ksj_link.py       #   PostgreSQL KSJ Link
 │   └── config_db_jiwaplus.py       #   PostgreSQL JiwaPlus (consumer app)
 │
-├── dags/                           # Airflow DAGs (mounted ke /opt/airflow/dags), 1 folder = 1 DAG
-│   ├── iseller_pusat_fulfillment/  #   ETL iSeller Pusat (backfill fulfillment + redump DWH)
-│   ├── iseller_pusat_backfilling/  #   ETL iSeller Pusat (backfilling order yang tidak ada di Data Lake, tanpa redump DWH)
-│   ├── iseller_mitra_ingestion/     #   ETL iSeller Mitra (ingestion harian order H-1 ke Data Lake, tanpa redump DWH)
-│   ├── iseller_mitra_backfilling/  #   ETL iSeller Mitra (backfilling order yang tidak ada di Data Lake, tanpa redump DWH)
-│   ├── iseller_mitra_fulfillment/  #   ETL iSeller Mitra (backfill fulfillment ke Data Lake, tanpa redump DWH)
-│   ├── iseller_mitra_cleaning/     #   ETL iSeller Mitra (cleaning duplikat Data Lake + redump DWH)
-│   ├── sjw_riders_mapping/         #   KSJ Link riders↔hubs mapping + sync PostgreSQL
-│   ├── f_hourly_rider_performance_tito/  # Performa rider per jam (check-in/out)
-│   ├── f_rider_mangkal_summary/    #   Deteksi sesi "mangkal" rider
-│   ├── f_daily_ksj_app_user_session/  # Sesi user app JiwaPlus + KSJ
-│   ├── f_ksj_ondemand_order_summary/  # Summary order on-demand KSJ
-│   ├── api_integration_landlord_01065/  # Revenue sharing → API landlord Lippo Mall (jilid 01065 only)
-│   ├── f_daily_estimated_income_per_store/  # Estimasi uang masuk harian per outlet (landlord)
+├── dags/                           # Airflow DAGs (mounted ke /opt/airflow/dags): dags/<kategori>/<folder DAG>/
+│   ├── iseller_pusat/              # = panel "Folders" di UI Airflow
+│   │   ├── iseller_pusat_fulfillment/  # ETL iSeller Pusat (backfill fulfillment + redump DWH)
+│   │   └── iseller_pusat_backfilling/  # ETL iSeller Pusat (backfilling order yang tidak ada di Data Lake, tanpa redump DWH)
+│   ├── iseller_mitra/
+│   │   ├── iseller_mitra_ingestion/    # ETL iSeller Mitra (ingestion harian order H-1 ke Data Lake, tanpa redump DWH)
+│   │   ├── iseller_mitra_backfilling/  # ETL iSeller Mitra (backfilling order yang tidak ada di Data Lake, tanpa redump DWH)
+│   │   ├── iseller_mitra_fulfillment/  # ETL iSeller Mitra (backfill fulfillment ke Data Lake, tanpa redump DWH)
+│   │   └── iseller_mitra_cleaning/     # ETL iSeller Mitra (cleaning duplikat Data Lake + redump DWH)
+│   ├── ksj_rider_operations/
+│   │   ├── sjw_riders_mapping/         # KSJ Link riders↔hubs mapping + sync PostgreSQL
+│   │   ├── f_hourly_rider_performance_tito/  # Performa rider per jam (check-in/out)
+│   │   ├── f_rider_mangkal_summary/    # Deteksi sesi "mangkal" rider
+│   │   └── f_ksj_ondemand_order_summary/  # Summary order on-demand KSJ
+│   ├── app_analytics/
+│   │   └── f_daily_ksj_app_user_session/  # Sesi user app JiwaPlus + KSJ
+│   ├── landlord_revenue_sharing/
+│   │   ├── api_integration_landlord_01065/  # Revenue sharing → API landlord Lippo Mall (01065)
+│   │   ├── api_integration_landlord_00570/  # Revenue sharing → API landlord (00570, dipicu Asset)
+│   │   └── f_daily_estimated_income_per_store/  # Estimasi uang masuk harian per outlet (landlord)
 │   └── maintenance/                #   Cleanup log & metadata Airflow
 │
 ├── logs/                           # Runtime logs (auto-generated, gitignored)
@@ -177,7 +183,7 @@ access_token_pusat=YOUR_TOKEN_HERE
 
 ### Manual Run (Notebook)
 
-File: `dags/iseller_pusat_fulfillment/manual_run_iseller_pusat_fulfillment.ipynb`
+File: `dags/iseller_pusat/iseller_pusat_fulfillment/manual_run_iseller_pusat_fulfillment.ipynb`
 
 Parameter yang bisa diatur:
 
@@ -197,7 +203,7 @@ iSeller ke Data Lake, **tanpa redump DWH**. DAG `etl_iseller_mitra_cleaning` (07
 selesai. Token: `access_token_mitra`.
 
 Manual run: **Trigger DAG w/ config** (isi `start_date`/`end_date`, pecah per bulan untuk periode
-panjang) atau notebook `dags/iseller_mitra_fulfillment/manual_run_iseller_mitra_fulfillment.ipynb`.
+panjang) atau notebook `dags/iseller_mitra/iseller_mitra_fulfillment/manual_run_iseller_mitra_fulfillment.ipynb`.
 Setelah backfill memproses order, redump DWH manual lewat `etl_iseller_mitra_cleaning` dengan
 `run_mode = dwh_only`. Detail lengkap: [`docs/pipelines/iseller_mitra_fulfillment.md`](docs/pipelines/iseller_mitra_fulfillment.md).
 

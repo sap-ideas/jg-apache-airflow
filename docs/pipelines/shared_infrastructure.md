@@ -42,7 +42,7 @@ Satu sumber kebenaran untuk semua koneksi database di project.
 
 Helper untuk mengirim notifikasi **Adaptive Card** ke Microsoft Teams lewat webhook
 **Power Automate**. Modul ini sengaja dibuat generic — SQL/konten spesifik per-DAG
-harus ditulis di modul lokal DAG masing-masing (`dags/<dag>/teams_report_*.py`), bukan di sini.
+harus ditulis di modul lokal DAG masing-masing (`dags/<kategori>/<dag>/teams_report_*.py`), bukan di sini.
 
 Fungsi utama:
 
@@ -73,7 +73,7 @@ Nilai default hardcoded di ketiga file ini termasuk **hostname produksi asli, us
 
 ## Konvensi Struktur Per-DAG
 
-- Setiap DAG hidup di `dags/<nama_dag>/` dengan subpackage `pipelines/` (`extract.py`, `transform.py`, `load.py` opsional, `etl_orchestrator.py`).
+- Setiap DAG hidup di `dags/<kategori>/<nama_dag>/` dengan subpackage `pipelines/` (`extract.py`, `transform.py`, `load.py` opsional, `etl_orchestrator.py`).
 - Kalau DAG mengirim laporan Teams, biasanya ada file SQL lokal `sql/<tujuan>_teams_summary.sql` + modul `teams_report_<nama>.py` yang mengekspos fungsi `send_*_teams_report()`.
 - Kalau DAG punya tabel tujuan sendiri (bukan tabel shared lintas-DAG), schema-nya didokumentasikan sebagai `sql/create_table.sql` (atau `sql/create_table_<nama_tabel>.sql` kalau lebih dari satu tabel) di folder DAG itu — `CREATE TABLE IF NOT EXISTS`, dijalankan **manual** (bukan lewat migration tool/Airflow task), sekadar biar schema-nya ada satu sumber kebenaran yang di-track Git. Perubahan schema lintas-DAG/tabel shared tetap masuk `migrations/` di root.
 - `config/config_db_*.py` hanya menyimpan parameter koneksi (host/user/pass/port/nama DB); semua logic pembuatan koneksi/engine ada di `plugins/common/db_helpers.py` — DAG tidak pernah membangun connection string sendiri.

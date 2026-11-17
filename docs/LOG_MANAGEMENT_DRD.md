@@ -251,7 +251,7 @@ AIRFLOW__SCHEDULER__CLEAN_TIMED_OUT_TASK_INSTANCES: 'true'
 ├── dags/
 │   ├── maintenance/
 │   │   └── log_cleanup_dag.py          # ✅ NEW: Automated cleanup DAG
-│   └── sjw_riders_mapping/
+│   └── ksj_rider_operations/sjw_riders_mapping/
 │       └── dag_riders_hubs_mapping.py  # Existing production DAG
 ├── scripts/
 │   └── monitor_airflow_logs.sh         # ✅ NEW: Monitoring script
