@@ -64,7 +64,7 @@ file `.env` langsung dari data team.
 Tanpa `.env` terisi, container akan **gagal start** (docker-compose akan menolak start
 kalau ada `${VAR:?set_in_env}` yang kosong) atau DAG akan gagal connect ke database/API.
 
-**Soal outlet landlord (`jilid`)**: folder `dags/api_integration_landlord_01065/` sengaja
+**Soal outlet landlord (`jilid`)**: folder `dags/landlord_revenue_sharing/api_integration_landlord_01065/` sengaja
 khusus untuk outlet **01065 saja** (nama folder sudah eksplisit menyebut jilid-nya, DAG
 tidak generik). Keputusan tim data: setiap outlet baru dapat **DAG & folder pipeline
 sendiri** (bukan 1 DAG generik yang loop banyak outlet) — karena tiap outlet berpotensi
@@ -80,9 +80,9 @@ Beberapa DAG punya file `sql/create_table*.sql` di folder DAG masing-masing (`CR
 TABLE IF NOT EXISTS`, tidak dieksekusi otomatis oleh Airflow — murni referensi DDL
 manual):
 
-- `dags/f_daily_estimated_income_per_store/sql/create_table.sql` → tabel
+- `dags/landlord_revenue_sharing/f_daily_estimated_income_per_store/sql/create_table.sql` → tabel
   `daily_est_income_per_store_for_landlord`
-- `dags/f_ksj_ondemand_order_summary/sql/create_table.sql` → tabel target DAG itu
+- `dags/ksj_rider_operations/f_ksj_ondemand_order_summary/sql/create_table.sql` → tabel target DAG itu
 
   **Kedua tabel di atas sudah dibuat & sudah di-dump data testing-nya di production**
   (dikonfirmasi tim data, 2026-09-22) — tidak perlu dijalankan ulang saat deploy.
@@ -90,12 +90,12 @@ manual):
   **Pengecualian:** `daily_est_income_per_store_for_landlord` berubah dari format wide
   (kolom per channel) ke format long (satu baris per date + outlet + payment_type).
   Sebelum kode versi long dijalankan, tabel harus di-cutover manual sesuai
-  `dags/f_daily_estimated_income_per_store/sql/migrate_wide_to_long.sql` (pause DAG,
+  `dags/landlord_revenue_sharing/f_daily_estimated_income_per_store/sql/migrate_wide_to_long.sql` (pause DAG,
   rename tabel lama, buat tabel baru, backfill via notebook, rekonsiliasi, unpause).
   Disimpan di sini sebagai referensi schema kalau perlu rebuild/restore di environment
   lain.
 
-- `dags/api_integration_landlord_01065/sql/create_table_logs.sql` dan
+- `dags/landlord_revenue_sharing/api_integration_landlord_01065/sql/create_table_logs.sql` dan
   `create_table_log_detail.sql` → tabel `api_landlord_logs` & `api_landlord_log_detail`
   (log request/response ke API landlord). DAG ini sudah lama berjalan di production,
   jadi tabelnya kemungkinan besar sudah ada — **belum eksplisit dikonfirmasi seperti 2

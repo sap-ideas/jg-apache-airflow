@@ -131,4 +131,4 @@ NOTIFIKASI: Email HTML (Gmail SMTP) — 3 varian: sukses, 0 data, gagal (excepti
 
 ## Manual Run
 
-Ada notebook `dags/api_integration_landlord_01065/revenue_sharing.ipynb` sebagai precursor/dev notebook.
+Ada notebook `dags/landlord_revenue_sharing/api_integration_landlord_01065/revenue_sharing.ipynb` sebagai precursor/dev notebook.

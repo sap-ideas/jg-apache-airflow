@@ -86,7 +86,7 @@ output notebook.
   Tokopedia Go, QPON → `Qpon`, default Walk In. `Sejuta Jiwa` kalau order berisi minimal 1 produk di
   `PRODUCT_ID_SJW_LABEL` (40 ID, sama dengan notebook; di data Mitra praktis tidak pernah cocok).
 - **Details tidak di-`drop_duplicates`** — komponen combo identik dan baris sale/refund itu sah. Lihat
-  [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md).
+  [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra/iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md).
   Pengaman sebelum menulis: non-combo harus unik per dedup key details, combo harus = jumlah
   `product_combos` di raw JSON. Dilanggar → pipeline berhenti, DL tidak ditulis.
 
@@ -126,7 +126,7 @@ Dua cara:
 1. **Airflow UI → Trigger DAG w/ config**, isi `start_date`/`end_date`. Disarankan untuk backfill
    periode panjang: **pecah per bulan**, karena `execution_timeout` 3 jam (lewat itu task dibunuh lalu
    di-retry dari awal — aman tapi buang waktu).
-2. **Notebook** `dags/iseller_mitra_fulfillment/manual_run_iseller_mitra_fulfillment.ipynb` — param
+2. **Notebook** `dags/iseller_mitra/iseller_mitra_fulfillment/manual_run_iseller_mitra_fulfillment.ipynb` — param
    `AUTO_MODE`, `MANUAL_START_DATE`, `MANUAL_END_DATE`, `DRY_RUN`. `DRY_RUN = True` menjalankan backfill
    penuh (baca DL + API) tanpa menulis apa pun dan tanpa email/Teams; hasilnya di
    `result['backfill']['frames']` (`df_headers`, `df_details`, `df_details_skipped`, `df_unfulfilled_dl`).

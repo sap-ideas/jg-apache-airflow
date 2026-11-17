@@ -72,8 +72,8 @@ STEP 5 — Email HTML "Re-Dump Completed" (before/after per tabel + ringkasan de
 Notebook manual per step: `manual_run_iseller_mitra_cleaning.ipynb` (folder DAG; `DRY_RUN = True` bawaan, `DWH_ONLY` untuk skip DL).
 
 Param `run_all(..., dry_run=True)`: jalankan STEP 1-3 tanpa email, tanpa DELETE/re-dump, lalu berhenti.
-Detail logic dedup, daftar `reason` error master, dan hasil uji: [`FLOW_dedup_details_comboset.md`](../../dags/iseller_mitra_cleaning/FLOW_dedup_details_comboset.md)
-dan [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md).
+Detail logic dedup, daftar `reason` error master, dan hasil uji: [`FLOW_dedup_details_comboset.md`](../../dags/iseller_mitra/iseller_mitra_cleaning/FLOW_dedup_details_comboset.md)
+dan [`KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md`](../../dags/iseller_mitra/iseller_mitra_cleaning/KNOWLEDGE_comboset_komponen_identik_vs_duplicate.md).
 
 **Companywide (step 6)**: menyegarkan baris `datasource='ISELLER' AND ownership_model='MITRA'` di `daily_outlet_transaction_summary_companywide_new` dari `daily_transaction_summary_iseller_pusat`. Baris itu **dimiliki mitra**: `iseller_pusat_fulfillment` memakai kondisi kebalikannya (`ownership_model <> 'MITRA'` untuk cabang ISELLER, dan DELETE-nya mengecualikan ISELLER+MITRA), jadi tidak ada baris yang ditulis dua pipeline. Baris MITRA dari channel lain (JIWA+, MOKA) tetap ditulis pusat. Kalau mengubah salah satu kondisi, ubah keduanya.
 

@@ -24,7 +24,12 @@ proper" secara Airflow pada umumnya. Detail naratif + contoh per-DAG ada di
 
 ### 1.1 Struktur file
 
-Setiap pipeline **selalu** dipecah jadi file terpisah di `dags/<nama_dag>/pipelines/`
+Folder DAG dikelompokkan per kategori: `dags/<kategori>/<nama_dag>/` (mis.
+`dags/iseller_mitra/iseller_mitra_cleaning/`); kategori ini yang tampil di panel **Folders**
+UI Airflow. DAG baru masuk ke kategori yang sesuai (buat kategori baru kalau tidak ada yang
+cocok); satu folder DAG tetap utuh, jangan gabungkan isi beberapa DAG dalam satu folder.
+
+Setiap pipeline **selalu** dipecah jadi file terpisah di `dags/<kategori>/<nama_dag>/pipelines/`
 — jangan digabung jadi satu file walau logic-nya terlihat pendek:
 
 | File | Isi |
@@ -198,17 +203,17 @@ Tanggung jawab dipecah menjadi tiga lapis (`dags/**/*.py`, `dags/**/*.sql`,
    - **Jangan** taruh SQL spesifik-DAG, copy bisnis, atau dataclass one-off di
      sini — modul ini harus tetap kecil dan stabil.
 
-2. **Per folder DAG**, di `dags/<...>/`:
+2. **Per folder DAG**, di `dags/<kategori>/<nama_dag>/`:
    - **`sql/<purpose>_teams_summary.sql`** — SQL summary untuk Teams card (satu
      file per query/report, nama jelas).
    - **`teams_report_<dag_or_area>.py`** — load SQL dari `sql/`, jalankan via
      SQLAlchemy `Engine`, map row ke string, panggil
      `build_etl_report_adaptive_card` + `post_to_power_automate`.
    - DAG meng-import `send_*_teams_report` dari modul lokal itu. Contoh:
-     `sjw_riders_mapping/teams_report_riders_mapping.py`,
-     `iseller_mitra_cleaning/teams_report_iseller_mitra.py`,
-     `iseller_mitra_fulfillment/teams_report_iseller_mitra_fulfillment.py`,
-     `iseller_pusat_fulfillment/teams_report_iseller_pusat_unfulfilled.py`.
+     `ksj_rider_operations/sjw_riders_mapping/teams_report_riders_mapping.py`,
+     `iseller_mitra/iseller_mitra_cleaning/teams_report_iseller_mitra.py`,
+     `iseller_mitra/iseller_mitra_fulfillment/teams_report_iseller_mitra_fulfillment.py`,
+     `iseller_pusat/iseller_pusat_fulfillment/teams_report_iseller_pusat_unfulfilled.py`.
 
 3. **Webhook secret**:
    - Pakai **satu webhook URL global**, resolve lewat
@@ -224,8 +229,8 @@ card** (bukan plain Post message), bind ke `triggerBody()?['adaptiveCard']` (ata
 setara).
 
 **Menambah report DAG baru:**
-1. Tambahkan `dags/<your_dag>/sql/<name>.sql`.
-2. Tambahkan `dags/<your_dag>/teams_report_<your_dag>.py` dengan fetch +
+1. Tambahkan `dags/<kategori>/<your_dag>/sql/<name>.sql`.
+2. Tambahkan `dags/<kategori>/<your_dag>/teams_report_<your_dag>.py` dengan fetch +
    `send_*_teams_report`.
 3. Di DAG: `PythonOperator` terakhir dengan `trigger_rule="all_success"` yang
    memanggil `send_*`.
