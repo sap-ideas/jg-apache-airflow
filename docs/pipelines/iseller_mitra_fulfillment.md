@@ -12,31 +12,26 @@ File: `dag_etl_iseller_mitra_fulfillment.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_mitra_fulfillment` |
-| `schedule` | `"50 7 * * *"` — harian 07:50 Asia/Jakarta |
+| `schedule` | `None` — dipicu `etl_iseller_mitra_backfilling` (sebelumnya `"50 7 * * *"`, diganti 2026-11-18) |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |
 | `tags` | `["etl", "iseller", "mitra", "fulfillment", "datalake", "production"]` |
 | `default_args` | `owner='data-team'`, `depends_on_past=False`, `email_on_failure=False`, `email_on_retry=False`, `retries=2`, `retry_delay=timedelta(minutes=5)` |
-| Task | `PythonOperator("run_pipeline")` (`execution_timeout=timedelta(hours=3)`) → `ShortCircuitOperator("check_cleaning_rerun")` → `TriggerDagRunOperator("rerun_mitra_cleaning")` |
-| Param | `start_date`, `end_date` — hanya dipakai saat **Trigger DAG w/ config** (manual). Run terjadwal mengabaikannya |
+| Task | `PythonOperator("run_pipeline")` → `ShortCircuitOperator("next_conf")` → `TriggerDagRunOperator("trigger_<DAG berikutnya>")`, plus `status_akhir` (lihat [`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md)); `run_pipeline` `execution_timeout=timedelta(hours=3)` |
+| Param | `start_date`, `end_date`, `trigger_next` — trigger manual, atau diisi conf dari backfilling |
 
-**Date window**: run terjadwal memproses **rolling 9 hari (H-9 s.d. H-1)** di Asia/Jakarta, sama dengan
-Pusat. Trigger manual memakai `start_date`/`end_date` dari form (isi awal = window terjadwal; start
-setelah end ditolak). Tidak ada `run_mode` karena DAG ini memang tidak menyentuh DWH.
+**Date window**: run dari rantai memproses **H-8 s.d. H-1** di Asia/Jakarta (sebelum 2026-11-18: H-9 s.d. H-1;
+diseragamkan supaya semua DAG Mitra paling jauh H-8). Trigger manual memakai `start_date`/`end_date` dari form
+(isi awal = H-8 s.d. H-1; start setelah end ditolak). Tidak ada `run_mode` karena DAG ini memang tidak menyentuh DWH.
 
-**Urutan dengan DAG lain**: DAG ini jalan duluan (07:50). [`etl_iseller_mitra_cleaning`](./iseller_mitra_cleaning.md)
-(07:51) menunggu run terjadwal DAG ini selesai (sukses atau gagal), karena cleaning melakukan DELETE +
-re-dump `transactions_items_iseller_mitra` — tabel yang sama yang di-append DAG ini. Sensor cleaning
-**tidak** mengenali run dari notebook manual, jadi jangan jalankan notebook di sekitar 07:50 sampai
-cleaning selesai (atau pause DAG cleaning dulu). Trigger manual lewat Airflow UI aman: karena
-`max_active_runs=1`, run terjadwal ikut antre dan cleaning menunggu sampai selesai.
-
-**Re-run cleaning kalau DAG ini telat**: kalau DAG ini sempat paused, sensor cleaning hari itu lolos tanpa
-menunggu. Begitu DAG ini dinyalakan lagi dan run terjadwalnya selesai sukses, `check_cleaning_rerun` melihat
-sensor cleaning hari yang sama sudah `success` lalu `rerun_mitra_cleaning` men-trigger cleaning untuk tanggal
-H-1 yang sama (`run_mode=full`, run bertipe `operator_triggered`, tidak menunggu sensor). Hari normal (cleaning
-masih menunggu) dan run manual tidak memicu apa-apa.
+**Urutan dengan DAG lain** (sejak 2026-11-18): dipicu `etl_iseller_mitra_backfilling`. Selesai **sukses atau
+gagal** → memicu [`etl_iseller_mitra_cleaning`](./iseller_mitra_cleaning.md) (`run_mode=datalake_only`), karena
+duplikat di Data Lake lebih berbahaya daripada sedikit order unfulfilled. Window cleaning H-8 s/d H-1 kalau
+backfilling (`dl_changed`) atau DAG ini mengubah order (≥1 order jadi fulfilled), selain itu H-1. DAG ini gagal =
+Data Lake tidak berubah (details + UPDATE dalam satu transaksi, di-rollback). Cleaning baru dipicu setelah DAG ini
+selesai, jadi keduanya tidak pernah menulis bersamaan; notebook manual tetap jangan dijalankan saat rantai pagi
+berjalan. Detail: [`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md).
 
 ## Alur Pipeline
 

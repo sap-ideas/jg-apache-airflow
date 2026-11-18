@@ -1,21 +1,19 @@
 """
 DAG: ETL iSeller Mitra - Cleaning Duplicates & DWH Redump
 Checks for duplicated data in Data Lake, cleans if needed,
-then re-dumps all 5 DWH summary tables from cleaned Data Lake.
+then (run_mode full) re-dumps the DWH summary tables from cleaned Data Lake.
 Sends email notifications at each stage.
 
-Scheduled runs wait until etl_iseller_mitra_fulfillment (07:50) has finished (success or failed):
-fulfillment appends to transactions_items_iseller_mitra, and cleaning must not DELETE + re-dump
-that table while fulfillment is still writing to it.
+Tanpa jadwal: dipicu etl_iseller_mitra_fulfillment (rantai harian, plugins/common/mitra_chain.py) dengan
+run_mode datalake_only, jadi DAG ini hanya membersihkan Data Lake. Setelah selesai (sukses ATAU gagal) memicu
+6 DAG DWH (etl_iseller_mitra_dwh_summary_*) H-8 s/d H-1: DWH yang mungkin dobel lebih mudah dicek daripada
+DWH yang kosong. Karena dipicu setelah fulfillment selesai, DAG ini tidak pernah jalan bersamaan dengan fulfillment.
 """
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
-from airflow.sensors.python import PythonSensor
-from airflow.sdk.exceptions import AirflowRuntimeError
 from datetime import datetime, timedelta
 import pendulum
-import sys
 import os
 import importlib.util
 
@@ -26,6 +24,9 @@ load_pipeline_dir(_BASE)
 load_pipeline_dir(os.path.join(_BASE, 'pipelines'))
 
 from redump_etl_functions import run_all
+from common.mitra_chain import (
+    CLEANING, DWH_ITEMS, LOOKBACK_DAYS, add_chain_tasks, days_before, trigger_next_param, window_from_params,
+)
 
 
 def load_config(config_path):
@@ -38,56 +39,9 @@ CONFIG_DW = load_config("/opt/airflow/config/config_db_datawarehouse.py")
 
 local_tz = pendulum.timezone("Asia/Jakarta")
 
-def _target_date_yesterday_jakarta(**context):
-    """
-    Kalender kemarin di Asia/Jakarta relatif ke akhir interval Airflow.
-    Untuk scheduled run pagi, data_interval_end adalah hari run, jadi minus 1 = H-1.
-    """
-    anchor = context.get("data_interval_end") or context.get("logical_date")
-    if anchor is None:
-        raise ValueError("context missing data_interval_end and logical_date")
-    jakarta = pendulum.instance(anchor).in_timezone(local_tz)
-    return jakarta.subtract(days=1).to_date_string()
-
-MITRA_FULFILLMENT_DAG_ID = "etl_iseller_mitra_fulfillment"
-# Fulfillment jalan 07:50, DAG ini 07:51 -> logical date fulfillment 1 menit SEBELUM logical date DAG ini.
-# DAG ini sengaja dijadwalkan tepat setelah fulfillment mulai: sensor yang menentukan kapan benar-benar jalan
-# (begitu fulfillment selesai). Kalau salah satu jadwal diubah, ubah selisih ini juga
-# (kalau tidak, sensor menunggu run yang tidak pernah ada)
-FULFILLMENT_RUNS_BEFORE_THIS = timedelta(minutes=1)
-
-
-# Run manual dari UI = "manual"; re-run yang dipicu DAG fulfillment (TriggerDagRunOperator) = "operator_triggered".
-# Keduanya memakai tanggal dari params/conf dan tidak menunggu fulfillment.
-MANUAL_RUN_TYPES = ("manual", "operator_triggered")
-
-
-def _mitra_fulfillment_finished(dag_run, logical_date, ti, **_):
-    """True kalau run fulfillment Mitra hari yang sama sudah selesai (sukses atau gagal)."""
-    if dag_run.run_type in MANUAL_RUN_TYPES:
-        return True  # trigger manual tidak ikut menunggu
-    # Airflow 3: task tidak boleh akses metadata DB langsung -> lewat API task instance
-    try:
-        paused = ti.get_dag(MITRA_FULFILLMENT_DAG_ID).is_paused
-    except AirflowRuntimeError as e:
-        if (e.error.detail or {}).get("status_code") != 404:
-            raise
-        paused = True  # DAG fulfillment tidak ada
-    if paused:
-        print(f"  {MITRA_FULFILLMENT_DAG_ID} tidak ada / paused -> tidak ditunggu")
-        return True
-    finished = ti.get_dr_count(
-        dag_id=MITRA_FULFILLMENT_DAG_ID,
-        logical_dates=[logical_date - FULFILLMENT_RUNS_BEFORE_THIS],
-        states=["success", "failed"],
-    )
-    print(f"  {MITRA_FULFILLMENT_DAG_ID} selesai: {bool(finished)}")
-    return finished > 0
-
-
 RUN_MODES = ["full", "datalake_only", "dwh_only"]
 
-# Isi awal form trigger = H-1 saat file DAG di-parse. Run terjadwal tidak memakainya (lihat run_pipeline).
+# Isi awal form trigger = H-1 saat file DAG di-parse. Run dari rantai memakai window dari conf.
 DEFAULT_DATE = pendulum.now(local_tz).subtract(days=1).to_date_string()
 
 
@@ -97,14 +51,9 @@ def run_pipeline(**context):
     if run_mode not in RUN_MODES:
         raise ValueError(f"run_mode must be one of {RUN_MODES}, got {run_mode!r}")
 
-    if context["dag_run"].run_type in MANUAL_RUN_TYPES:
-        start_date, end_date = params["start_date"], params["end_date"]
-        if start_date > end_date:
-            raise ValueError(f"start_date ({start_date}) tidak boleh setelah end_date ({end_date})")
-        print(f"  DATE WINDOW: {start_date} s/d {end_date} (manual)")
-    else:
-        start_date = end_date = _target_date_yesterday_jakarta(**context)
-        print(f"  DATE WINDOW: {start_date} (H-1 dari jadwal)")
+    # Tanpa jadwal: run manual atau dipicu fulfillment (window + run_mode ada di conf)
+    start_date, end_date = window_from_params(params)
+    print(f"  DATE WINDOW: {start_date} s/d {end_date} ({context['dag_run'].run_type})")
 
     print(f"  RUN MODE: {run_mode}")
     run_all(
@@ -115,6 +64,19 @@ def run_pipeline(**context):
         skip_dwh=(run_mode == "datalake_only"),
         airflow_context=context,
     )
+    return {"run_mode": run_mode}  # XCom kosong = gagal (dibaca next_conf / status_akhir)
+
+
+def _dwh_conf(result, context):
+    """Cleaning selesai (sukses atau gagal) -> DWH. Rantai harian: selalu H-8 s/d H-1.
+    Trigger manual dengan trigger_next: window cleaning yang sama."""
+    conf = context["dag_run"].conf or {}
+    if conf.get("chain_h1"):
+        h1 = conf["chain_h1"]
+        return {"start_date": days_before(h1, LOOKBACK_DAYS), "end_date": h1}
+    start_date, end_date = window_from_params(context["params"])
+    return {"start_date": start_date, "end_date": end_date}
+
 
 default_args = {
     'owner': 'data-team',
@@ -126,10 +88,10 @@ default_args = {
 }
 
 with DAG(
-    dag_id="etl_iseller_mitra_cleaning",
+    dag_id=CLEANING,
     default_args=default_args,
-    description="ETL iSeller Mitra: Check duplicates, clean DL, re-dump 5 DWH summary tables",
-    schedule="51 7 * * *",
+    description="ETL iSeller Mitra: Check duplicates, clean DL (dipicu fulfillment), lalu memicu 6 DAG DWH summary",
+    schedule=None,
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "dwh", "production"],
@@ -141,9 +103,10 @@ with DAG(
             enum=RUN_MODES,
             title="Run mode",
             description=(
-                "full = cek duplikat + bersihkan Data Lake + redump DWH (default, dipakai run terjadwal). "
-                "datalake_only = cek + bersihkan Data Lake saja, DWH tidak disentuh. "
-                "dwh_only = skip cek/cleaning Data Lake, langsung redump 5 tabel DWH dari DL apa adanya."
+                "full = cek duplikat + bersihkan Data Lake + redump DWH di dalam DAG ini (default trigger manual). "
+                "datalake_only = cek + bersihkan Data Lake saja, DWH tidak disentuh (dipakai rantai harian; "
+                "DWH diisi 6 DAG etl_iseller_mitra_dwh_summary_*). "
+                "dwh_only = skip cek/cleaning Data Lake, langsung redump tabel DWH dari DL apa adanya."
             ),
         ),
         "start_date": Param(
@@ -151,30 +114,23 @@ with DAG(
             type="string",
             format="date",
             title="Start date",
-            description="Hanya dipakai saat trigger manual. Run terjadwal selalu H-1. Satu hari saja: isi sama dengan end date.",
+            description="Awal window. Rantai harian: H-1, atau H-8 kalau backfilling / fulfillment mengubah order. "
+                        "Satu hari saja: isi sama dengan end date.",
         ),
         "end_date": Param(
             DEFAULT_DATE,
             type="string",
             format="date",
             title="End date",
-            description="Hanya dipakai saat trigger manual. Tanggal ini ikut diproses.",
+            description="Akhir window, ikut diproses. Rantai harian selalu H-1.",
         ),
+        "trigger_next": trigger_next_param(),
     },
 ) as dag:
-
-    wait_fulfillment = PythonSensor(
-        task_id="wait_mitra_fulfillment",
-        python_callable=_mitra_fulfillment_finished,
-        mode="reschedule",                   # lepas worker slot selama menunggu
-        poke_interval=60,
-        timeout=timedelta(hours=4).total_seconds(),
-        retries=0,
-    )
 
     run = PythonOperator(
         task_id="run_pipeline",
         python_callable=run_pipeline,
     )
 
-    wait_fulfillment >> run
+    add_chain_tasks(run, DWH_ITEMS, _dwh_conf)

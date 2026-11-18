@@ -4,8 +4,10 @@ Menarik order H-1 dari iSeller API (header + details) ke Data Lake (transactions
 transactions_items_iseller_mitra). Order yang sudah ada di Data Lake dilewati, jadi retry / trigger ulang aman
 dan tidak menggandakan data. Tabel summary DWH tidak disentuh.
 
-Jalan 06:00 WIB, sebelum etl_iseller_mitra_backfilling (06:10), etl_iseller_mitra_fulfillment (07:50) dan
-etl_iseller_mitra_cleaning (07:51). Ingestion menulis H-1, backfilling menulis H-8 s/d H-7, jadi tidak beririsan.
+Jalan 06:00 WIB, satu-satunya DAG berjadwal di rantai harian iSeller Mitra (plugins/common/mitra_chain.py).
+Sukses -> memicu etl_iseller_mitra_backfilling (H-8 s/d H-7), lalu fulfillment, cleaning, dan 6 tabel DWH.
+Gagal -> rantai berhenti; rerun manual dengan trigger_next dicentang untuk menjalankan seluruh rantai.
+Ingestion menulis H-1, backfilling menulis H-8 s/d H-7, jadi tidak beririsan.
 """
 from airflow import DAG
 from airflow.models.param import Param
@@ -22,6 +24,7 @@ load_pipeline_dir(_BASE)
 load_pipeline_dir(os.path.join(_BASE, 'pipelines'))
 
 from etl_orchestrator import run_all
+from common.mitra_chain import BACKFILLING, INGESTION, LOOKBACK_DAYS, add_chain_tasks, days_before, trigger_next_param
 
 
 def load_config(config_path):
@@ -73,6 +76,16 @@ def run_pipeline(**context):
         dry_run=dry_run,
         airflow_context=context,
     )
+    return {"end_date": end_date}  # dibaca next_conf: end_date = H-1 rantai harian
+
+
+def _backfilling_conf(result, context):
+    """Ingestion sukses -> backfilling H-8 s/d H-7. Ingestion gagal -> rantai berhenti."""
+    if result is None:
+        print("  Ingestion gagal: rantai berhenti, backfilling / fulfillment / cleaning / DWH tidak dipicu.")
+        return None
+    h1 = result["end_date"]
+    return {"chain_h1": h1, "start_date": days_before(h1, LOOKBACK_DAYS), "end_date": days_before(h1, LOOKBACK_DAYS - 1)}
 
 
 default_args = {
@@ -85,7 +98,7 @@ default_args = {
 }
 
 with DAG(
-    dag_id="etl_iseller_mitra_ingestion",
+    dag_id=INGESTION,
     default_args=default_args,
     description="ETL iSeller Mitra: ingestion harian order H-1 dari iSeller API ke Data Lake (tanpa redump DWH)",
     schedule="0 6 * * *",
@@ -114,11 +127,14 @@ with DAG(
             title="Dry run",
             description="Hanya trigger manual. True = tarik + proses lengkap tapi TIDAK menulis Data Lake dan tidak kirim email/Teams.",
         ),
+        "trigger_next": trigger_next_param(),
     },
 ) as dag:
 
-    PythonOperator(
+    run = PythonOperator(
         task_id="run_pipeline",
         python_callable=run_pipeline,
         execution_timeout=timedelta(hours=2),
     )
+
+    add_chain_tasks(run, BACKFILLING, _backfilling_conf)

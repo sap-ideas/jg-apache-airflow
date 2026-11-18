@@ -6,9 +6,9 @@ jadi retry atau trigger ulang tidak menggandakan data. Berhenti di Data Lake: ti
 Pipeline-nya sama dengan [`iseller_mitra_backfilling`](./iseller_mitra_backfilling.md) (extract, transform, load disalin dari sana);
 bedanya hanya jendela tanggal. Ingestion menulis **H-1**, backfilling menulis **H-8 s/d H-7**.
 
-**Urutan dengan DAG lain**: jalan 06:00, paling awal: lalu `etl_iseller_mitra_backfilling` (06:10), `etl_iseller_mitra_fulfillment`
-(07:50), `etl_iseller_mitra_cleaning` (07:51). Cleaning menunggu fulfillment, **tidak** menunggu DAG ini; kalau ingestion
-normalnya selesai dalam hitungan menit itu tidak masalah. Kalau suatu saat ingestion bisa molor mendekati 07:50, tambahkan sensor.
+**Urutan dengan DAG lain** (sejak 2026-11-18): satu-satunya DAG terjadwal di rantai harian Mitra. Sukses → memicu
+`etl_iseller_mitra_backfilling`, lalu fulfillment, cleaning, dan 6 DAG DWH. **Gagal → rantai berhenti**; rerun manual
+dengan `trigger_next` dicentang untuk menjalankan seluruh rantai. Detail: [`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md).
 
 ## Metadata DAG
 
@@ -23,8 +23,8 @@ File: `dag_etl_iseller_mitra_ingestion.py`
 | `max_active_runs` | `1` |
 | `tags` | `["etl", "iseller", "mitra", "ingestion", "datalake", "production"]` |
 | `default_args` | `owner='data-team'`, `retries=2`, `retry_delay=timedelta(minutes=5)` |
-| Task | 1x `PythonOperator("run_pipeline")`, `execution_timeout=timedelta(hours=2)` |
-| Param | `start_date`, `end_date`, `dry_run` — hanya dipakai saat **Trigger DAG w/ config** (manual, `run_type == "manual"`) |
+| Task | `PythonOperator("run_pipeline")` → `ShortCircuitOperator("next_conf")` → `TriggerDagRunOperator("trigger_<DAG berikutnya>")`, plus `status_akhir` (lihat [`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md)); `run_pipeline` `execution_timeout=timedelta(hours=2)` |
+| Param | `start_date`, `end_date`, `dry_run`, `trigger_next` — hanya dipakai saat **Trigger DAG w/ config** (manual, `run_type == "manual"`) |
 
 **Date window**: run terjadwal (juga backfill / dataset) memproses **H-1** di Asia/Jakarta dari `data_interval_end`. Trigger manual memakai
 `start_date`/`end_date` dari form (isi awal = H-1; start setelah end ditolak). `dry_run = True` (manual saja) = tarik + proses lengkap

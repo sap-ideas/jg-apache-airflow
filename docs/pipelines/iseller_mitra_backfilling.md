@@ -6,9 +6,9 @@ ada redump DWH.
 
 Beda dengan [`iseller_mitra_fulfillment`](./iseller_mitra_fulfillment.md): fulfillment hanya memperbaiki order yang
 sudah ada di header dengan `fulfillment_status = 'none'`. Backfilling ini mengisi order yang belum punya header sama sekali.
-Tabel summary DWH tidak disentuh (sama dengan `etl_iseller_mitra_fulfillment`): setelah backfilling memasukkan order, redump manual lewat `etl_iseller_mitra_cleaning` dengan `run_mode = dwh_only` untuk tanggal yang sama.
+Tabel summary DWH tidak disentuh langsung: DWH H-8 s/d H-1 diisi ulang oleh 6 DAG DWH di akhir rantai harian ([`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md)).
 
-**Urutan dengan DAG lain**: jalan 06:10, setelah `etl_iseller_mitra_ingestion` (06:00, menulis H-1) dan sebelum `etl_iseller_mitra_fulfillment` (07:50) dan `etl_iseller_mitra_cleaning` (07:51). DAG ini menulis H-8 s/d H-7, jadi tidak beririsan dengan ingest harian. Fulfillment dan cleaning **tidak menunggu** DAG ini; run biasanya selesai dalam hitungan menit, tapi jangan trigger manual yang panjang di sekitar 08:00-09:00.
+**Urutan dengan DAG lain** (sejak 2026-11-18): tanpa jadwal. Dipicu `etl_iseller_mitra_ingestion` setelah ingestion sukses, lalu memicu `etl_iseller_mitra_fulfillment` apa pun hasilnya (conf `dl_changed`: ada order / details baru, atau DAG ini gagal → cleaning ikut cek H-8 s/d H-1). DAG ini menulis H-8 s/d H-7, jadi tidak beririsan dengan ingest harian. Detail: [`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md).
 
 ## Metadata DAG
 
@@ -17,19 +17,19 @@ File: `dag_etl_iseller_mitra_backfilling.py`
 | Field | Nilai |
 |---|---|
 | `dag_id` | `etl_iseller_mitra_backfilling` |
-| `schedule` | `"10 6 * * *"` — harian 06:10 Asia/Jakarta (setelah ingest harian ~06:08) |
+| `schedule` | `None` — dipicu `etl_iseller_mitra_ingestion` (sebelumnya `"10 6 * * *"`, diganti 2026-11-18) |
 | `start_date` | `datetime(2026, 1, 1, tzinfo=local_tz)` |
 | `catchup` | `False` |
 | `max_active_runs` | `1` |
 | `tags` | `["etl", "iseller", "mitra", "backfilling", "datalake", "production"]` |
 | `default_args` | `owner='data-team'`, `retries=2`, `retry_delay=timedelta(minutes=5)` |
-| Task | 1x `PythonOperator("run_pipeline")`, `execution_timeout=timedelta(hours=3)` |
-| Param | `start_date`, `end_date`, `dry_run` — hanya dipakai saat **Trigger DAG w/ config** (manual) |
+| Task | `PythonOperator("run_pipeline")` → `ShortCircuitOperator("next_conf")` → `TriggerDagRunOperator("trigger_<DAG berikutnya>")`, plus `status_akhir` (lihat [`iseller_mitra_dwh_summary.md`](./iseller_mitra_dwh_summary.md)); `run_pipeline` `execution_timeout=timedelta(hours=3)` |
+| Param | `start_date`, `end_date`, `dry_run`, `trigger_next` — trigger manual, atau diisi conf dari ingestion |
 
-**Date window**: run terjadwal menarik **H-8 s/d H-7** (Asia/Jakarta, dari `data_interval_end`). Cek order yang sudah ada
+**Date window**: run dari rantai menarik **H-8 s/d H-7** (dihitung ingestion, dikirim lewat conf). Cek order yang sudah ada
 memakai window yang sama ditambah 1 hari (transaksi/refund yang tercatat di hari berikutnya). Trigger manual memakai
 `start_date`/`end_date` dari form (isi awal = H-8 s/d H-7; start setelah end ditolak). `dry_run = True` (manual saja) = tarik +
-proses lengkap tapi **tidak menulis Data Lake dan tidak kirim email/Teams**; run terjadwal selalu menulis.
+proses lengkap tapi **tidak menulis Data Lake dan tidak kirim email/Teams**, dan tidak memicu DAG berikutnya.
 
 ## Alur Pipeline
 
