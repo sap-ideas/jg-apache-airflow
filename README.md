@@ -198,14 +198,15 @@ Parameter yang bisa diatur:
 
 ## iSeller Mitra Fulfillment — Ringkas
 
-DAG `etl_iseller_mitra_fulfillment` (07:50): backfill order Mitra yang masih unfulfilled lewat API
-iSeller ke Data Lake, **tanpa redump DWH**. DAG `etl_iseller_mitra_cleaning` (07:51) menunggu DAG ini
-selesai. Token: `access_token_mitra`.
+DAG `etl_iseller_mitra_fulfillment` (dipicu backfilling, rantai harian Mitra): backfill order Mitra yang masih
+unfulfilled lewat API iSeller ke Data Lake, **tanpa redump DWH**. Setelah selesai (sukses atau gagal) memicu
+`etl_iseller_mitra_cleaning`, lalu 6 DAG DWH `etl_iseller_mitra_dwh_summary_*` (H-8 s/d H-1). Token: `access_token_mitra`.
+Alur rantai: [`docs/pipelines/iseller_mitra_dwh_summary.md`](docs/pipelines/iseller_mitra_dwh_summary.md).
 
 Manual run: **Trigger DAG w/ config** (isi `start_date`/`end_date`, pecah per bulan untuk periode
 panjang) atau notebook `dags/iseller_mitra/iseller_mitra_fulfillment/manual_run_iseller_mitra_fulfillment.ipynb`.
-Setelah backfill memproses order, redump DWH manual lewat `etl_iseller_mitra_cleaning` dengan
-`run_mode = dwh_only`. Detail lengkap: [`docs/pipelines/iseller_mitra_fulfillment.md`](docs/pipelines/iseller_mitra_fulfillment.md).
+Setelah backfill manual memproses order, re-dump DWH dengan trigger manual `etl_iseller_mitra_dwh_summary_items`
+(centang `trigger_next` untuk keenam tabel). Detail lengkap: [`docs/pipelines/iseller_mitra_fulfillment.md`](docs/pipelines/iseller_mitra_fulfillment.md).
 
 ---
 

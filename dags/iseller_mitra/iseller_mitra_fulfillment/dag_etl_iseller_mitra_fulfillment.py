@@ -3,15 +3,14 @@ DAG: ETL iSeller Mitra - Backfill Fulfillment (Data Lake only)
 Detects unfulfilled orders, re-pulls from iSeller Mitra API, updates Data Lake,
 then sends email + Teams report. DWH summary tables are NOT re-dumped by this DAG.
 
-Ordering: this DAG runs first (07:50). etl_iseller_mitra_cleaning (07:51) waits until this DAG
-has finished, because cleaning dedups transactions_items_iseller_mitra (DELETE + re-dump) and
-must never run while this DAG is writing to the same Data Lake tables.
+Tanpa jadwal: dipicu etl_iseller_mitra_backfilling (rantai harian, plugins/common/mitra_chain.py), window H-8 s/d H-1.
+Selesai (sukses ATAU gagal) -> memicu etl_iseller_mitra_cleaning (datalake_only): duplikat di Data Lake lebih
+berbahaya daripada sedikit order unfulfilled. Window cleaning H-8 s/d H-1 kalau backfilling / fulfillment mengubah
+order, selain itu H-1. Fulfillment gagal tidak mengubah Data Lake (tulis dalam satu transaksi, di-rollback).
 """
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
-from airflow.providers.standard.operators.python import ShortCircuitOperator
-from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from datetime import datetime, timedelta
 import pendulum
 import os
@@ -24,6 +23,10 @@ load_pipeline_dir(_BASE)
 load_pipeline_dir(os.path.join(_BASE, 'pipelines'))
 
 from etl_orchestrator import run_all
+from common.mitra_chain import (
+    CLEANING, FULFILLMENT, LOOKBACK_DAYS, add_chain_tasks, chain_h1, days_before, trigger_next_param,
+    window_from_params,
+)
 
 
 def load_config(config_path):
@@ -38,71 +41,33 @@ CONFIG_DW = load_config("/opt/airflow/config/config_db_datawarehouse.py")
 local_tz = pendulum.timezone("Asia/Jakarta")
 
 
-def _target_end_date_yesterday_jakarta(**context):
-    """
-    Kalender kemarin di Asia/Jakarta relatif ke akhir interval Airflow.
-    Untuk scheduled run pagi, data_interval_end adalah hari run, jadi minus 1 = H-1.
-    """
-    anchor = context.get("data_interval_end") or context.get("logical_date")
-    if anchor is None:
-        raise ValueError("context missing data_interval_end and logical_date")
-    jakarta = pendulum.instance(anchor).in_timezone(local_tz)
-    return jakarta.subtract(days=1).to_date_string()
-
-
-# Isi awal form trigger = window default saat file DAG di-parse. Run terjadwal tidak memakainya (lihat run_pipeline).
+# Isi awal form trigger = window default saat file DAG di-parse. Run dari rantai memakai window dari conf.
 DEFAULT_END_DATE = pendulum.now(local_tz).subtract(days=1).to_date_string()
-DEFAULT_START_DATE = pendulum.parse(DEFAULT_END_DATE).subtract(days=8).to_date_string()
+DEFAULT_START_DATE = days_before(DEFAULT_END_DATE, LOOKBACK_DAYS)
 
 
 def run_pipeline(**context):
-    params = context.get("params") or {}
+    # Tanpa jadwal: run manual atau dipicu backfilling (window H-8 s/d H-1 ada di conf)
+    start_date, end_date = window_from_params(context.get("params") or {})
+    print(f"  DATE WINDOW: {start_date} s/d {end_date} ({context['dag_run'].run_type})")
 
-    if context["dag_run"].run_type == "manual":
-        start_date, end_date = params["start_date"], params["end_date"]
-        if start_date > end_date:
-            raise ValueError(f"start_date ({start_date}) tidak boleh setelah end_date ({end_date})")
-        print(f"  DATE WINDOW: {start_date} s/d {end_date} (manual)")
-    else:
-        end_date = _target_end_date_yesterday_jakarta(**context)
-        start_date = pendulum.parse(end_date).subtract(days=8).to_date_string()
-        print(f"  DATE WINDOW: {start_date} s/d {end_date} (H-1 minus 8 hari dari jadwal)")
-
-    run_all(
+    result = run_all(
         start_date,
         end_date,
         CONFIG_DW,
         airflow_context=context,
     )
+    # dibaca next_conf: ada order yang jadi fulfilled -> cleaning (dan DWH) ikut H-8 s/d H-1
+    return {"changed": bool((result.get("backfill") or {}).get("total_fulfilled"))}
 
 
-MITRA_CLEANING_DAG_ID = "etl_iseller_mitra_cleaning"
-# Cleaning jalan 07:51 -> logical date cleaning 1 menit SETELAH logical date DAG ini
-# (pasangan FULFILLMENT_RUNS_BEFORE_THIS di DAG cleaning; kalau jadwal diubah, ubah keduanya).
-CLEANING_RUNS_AFTER_THIS = timedelta(minutes=1)
-
-
-def _cleaning_date_to_rerun(dag_run, logical_date, ti, **context):
-    """Tanggal (H-1) untuk re-run cleaning Mitra, atau None kalau tidak perlu.
-
-    Normalnya sensor cleaning masih menunggu run ini, jadi tidak perlu apa-apa. Kalau DAG ini sempat
-    paused, sensor cleaning hari itu sudah lolos tanpa menunggu; begitu DAG ini dinyalakan lagi dan
-    run-nya selesai, cleaning diulang supaya ikut membersihkan data hasil fulfillment.
-    """
-    if dag_run.run_type == "manual":
-        return None
-    cleaning_passed = ti.get_ti_count(
-        dag_id=MITRA_CLEANING_DAG_ID,
-        task_ids=["wait_mitra_fulfillment"],
-        logical_dates=[logical_date + CLEANING_RUNS_AFTER_THIS],
-        states=["success"],
-    )
-    if not cleaning_passed:
-        print(f"  {MITRA_CLEANING_DAG_ID} masih menunggu / tidak jalan -> tidak perlu re-run")
-        return None
-    target_date = _target_end_date_yesterday_jakarta(logical_date=logical_date, **context)
-    print(f"  {MITRA_CLEANING_DAG_ID} sudah jalan tanpa menunggu run ini -> re-run cleaning {target_date}")
-    return target_date
+def _cleaning_conf(result, context):
+    """Fulfillment selesai (sukses atau gagal) -> cleaning datalake_only.
+    Window H-8 s/d H-1 kalau backfilling / fulfillment mengubah order, selain itu H-1 saja."""
+    h1 = chain_h1(context)
+    changed = bool((context["dag_run"].conf or {}).get("dl_changed")) or bool(result and result["changed"])
+    return {"start_date": days_before(h1, LOOKBACK_DAYS) if changed else h1, "end_date": h1,
+            "run_mode": "datalake_only"}
 
 
 default_args = {
@@ -115,10 +80,10 @@ default_args = {
 }
 
 with DAG(
-    dag_id="etl_iseller_mitra_fulfillment",
+    dag_id=FULFILLMENT,
     default_args=default_args,
-    description="ETL iSeller Mitra: Backfill fulfillment ke Data Lake (tanpa redump DWH), jalan sebelum Mitra cleaning",
-    schedule="50 7 * * *",
+    description="ETL iSeller Mitra: Backfill fulfillment ke Data Lake (tanpa redump DWH), dipicu backfilling, lalu memicu cleaning",
+    schedule=None,
     start_date=datetime(2026, 1, 1, tzinfo=local_tz),
     catchup=False,
     tags=["etl", "iseller", "mitra", "fulfillment", "datalake", "production"],
@@ -129,15 +94,16 @@ with DAG(
             type="string",
             format="date",
             title="Start date",
-            description="Hanya dipakai saat trigger manual. Run terjadwal selalu H-1 minus 8 hari. Satu hari saja: isi sama dengan end date.",
+            description="Awal window. Run dari rantai harian selalu H-8. Satu hari saja: isi sama dengan end date.",
         ),
         "end_date": Param(
             DEFAULT_END_DATE,
             type="string",
             format="date",
             title="End date",
-            description="Hanya dipakai saat trigger manual. Tanggal ini ikut diproses.",
+            description="Akhir window, ikut diproses. Run dari rantai harian selalu H-1.",
         ),
+        "trigger_next": trigger_next_param(),
     },
 ) as dag:
 
@@ -147,19 +113,4 @@ with DAG(
         execution_timeout=timedelta(hours=3),
     )
 
-    check_cleaning = ShortCircuitOperator(
-        task_id="check_cleaning_rerun",
-        python_callable=_cleaning_date_to_rerun,
-    )
-
-    rerun_cleaning = TriggerDagRunOperator(
-        task_id="rerun_mitra_cleaning",
-        trigger_dag_id=MITRA_CLEANING_DAG_ID,
-        conf={
-            "run_mode": "full",
-            "start_date": "{{ ti.xcom_pull(task_ids='check_cleaning_rerun') }}",
-            "end_date": "{{ ti.xcom_pull(task_ids='check_cleaning_rerun') }}",
-        },
-    )
-
-    run >> check_cleaning >> rerun_cleaning
+    add_chain_tasks(run, CLEANING, _cleaning_conf)

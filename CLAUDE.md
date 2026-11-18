@@ -77,18 +77,17 @@ Lihat `plugins/common/pipeline_loader.py` untuk penjelasan lengkap.
   dikendalikan kode Python biasa di dalam `etl_orchestrator.run_all()`, bukan oleh
   graf task Airflow (`>>`). DAG hanya punya satu `PythonOperator` yang memanggil
   `run_all()`. Pengecualian: `sjw_riders_mapping` (2 task berantai),
-  `iseller_mitra_cleaning` (sensor `wait_mitra_fulfillment` → `run_pipeline`: harus menunggu
-  `etl_iseller_mitra_fulfillment` selesai menulis Data Lake sebelum DELETE + re-dump; sensor mode
-  `reschedule` supaya menunggu tanpa menduduki worker slot — jangan digabung jadi satu task),
-  `iseller_mitra_fulfillment` (`run_pipeline` → `check_cleaning_rerun` → `rerun_mitra_cleaning`:
-  kalau cleaning hari itu sudah jalan tanpa menunggu karena fulfillment sempat paused, cleaning
-  di-trigger ulang setelah fulfillment selesai; run hasil trigger ini bertipe `operator_triggered`
-  dan diperlakukan seperti manual oleh DAG cleaning), dan
+  rantai harian iSeller Mitra (ingestion → backfilling → fulfillment → cleaning → 6 DAG
+  `etl_iseller_mitra_dwh_summary_*`: `run_pipeline` → `next_conf` → `trigger_<DAG berikutnya>`, plus
+  `status_akhir`; dipasang lewat `common.mitra_chain.add_chain_tasks`, hanya ingestion yang terjadwal,
+  run hasil trigger bertipe `operator_triggered` dan memakai window dari conf — lihat
+  [`docs/pipelines/iseller_mitra_dwh_summary.md`](docs/pipelines/iseller_mitra_dwh_summary.md)), dan
   `maintenance_log_cleanup` (7 task). Jangan buat DAG multi-task baru kecuali ada
   alasan sekuat itu.
 - **Airflow 3: task tidak boleh akses metadata DB Airflow** (`create_session`, `DagRun.find`,
   query tabel `log`/`ab_user`, dll. diblok). Info antar-DAG diambil lewat API task instance
-  (`ti.get_dag`, `ti.get_dr_count`, `ti.get_ti_count`) — contoh di sensor `iseller_mitra_cleaning`.
+  (`ti.get_dag`, `ti.get_dr_count`, `ti.get_ti_count`, `ti.xcom_pull`) — contoh di
+  `plugins/common/mitra_chain.py` (status `run_pipeline` dibaca dari XCom-nya: kosong = gagal).
 - **Date window "kemarin" (H-1) di Asia/Jakarta**, dihitung via helper
   `_target_date_yesterday_jakarta()` (atau `_target_end_date_yesterday_jakarta()`):
   ambil `data_interval_end` (fallback `logical_date`), convert ke `Asia/Jakarta`,
