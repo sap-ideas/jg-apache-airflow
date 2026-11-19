@@ -57,9 +57,18 @@ x-airflow-common:
     KSJ_LINK_DB_CMS: ${KSJ_LINK_DB_CMS:-d_cms}
     KSJ_LINK_DB_JIWA_KSJ: ${KSJ_LINK_DB_JIWA_KSJ:-jiwa-ksj}
 
+    # KSJ Link STAGING (tim tech) - tanpa :? supaya server yang belum punya key ini tetap start
+    KSJ_LINK_STG_HOST: ${KSJ_LINK_STG_HOST:-}
+    KSJ_LINK_STG_USER: ${KSJ_LINK_STG_USER:-}
+    KSJ_LINK_STG_PASSWORD: ${KSJ_LINK_STG_PASSWORD:-}
+    KSJ_LINK_STG_PORT: ${KSJ_LINK_STG_PORT:-5432}
+    KSJ_LINK_STG_DB_TRANSACTION: ${KSJ_LINK_STG_DB_TRANSACTION:-d_transaction}
+    KSJ_LINK_STG_DB_RIDER: ${KSJ_LINK_STG_DB_RIDER:-d_rider}
+
     # JiwaPlus (consumer app) PostgreSQL
     JIWAPLUS_HOST: ${JIWAPLUS_HOST:?set_in_env}
     JIWAPLUS_DATABASE: ${JIWAPLUS_DATABASE:?set_in_env}
+    JIWAPLUS_DATABASE_DATA_REPORT: ${JIWAPLUS_DATABASE_DATA_REPORT:-data_report}
     JIWAPLUS_USER: ${JIWAPLUS_USER:?set_in_env}
     JIWAPLUS_PASSWORD: ${JIWAPLUS_PASSWORD:?set_in_env}
     JIWAPLUS_PORT: ${JIWAPLUS_PORT:-5432}
