@@ -59,11 +59,15 @@ def replace_by_date_range(conn, df, table_name, start_date, end_date):
     return deleted, len(df)
 
 
-def load_all(engine, df_weekly, df_daily, df_products, start_date, end_date):
-    """Return {table: (deleted, inserted)}."""
+def load_all(engine, df_weekly, df_daily, df_products, start_date, end_date, data_end_date):
+    """Return {table: (deleted, inserted)}.
+
+    Weekly: dikunci ke minggu penuh (start_date/end_date). Daily & produk: DELETE hanya sampai
+    data_end_date (= target_date H-1), baris setelahnya tidak disentuh.
+    """
     with engine.begin() as conn:
         return {
             TABLE_WEEKLY: replace_weekly(conn, df_weekly, start_date, end_date),
-            TABLE_DAILY: replace_by_date_range(conn, df_daily, TABLE_DAILY, start_date, end_date),
-            TABLE_PRODUCTS: replace_by_date_range(conn, df_products, TABLE_PRODUCTS, start_date, end_date),
+            TABLE_DAILY: replace_by_date_range(conn, df_daily, TABLE_DAILY, start_date, data_end_date),
+            TABLE_PRODUCTS: replace_by_date_range(conn, df_products, TABLE_PRODUCTS, start_date, data_end_date),
         }

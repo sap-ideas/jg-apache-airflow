@@ -19,8 +19,18 @@ File: `dags/ksj_rider_commission/ksj_rider_commission_staging/dag_etl_ksj_rider_
 | Task | 1x `PythonOperator("run_pipeline")` |
 | Config | `config/config_db_ksj_link_staging.py` (env `KSJ_LINK_STG_*`, wajib diisi — DAG gagal jelas kalau kosong) |
 
-**Date window**: `target_date` = kemarin di Asia/Jakarta. Run manual boleh override lewat
+**Date window**: `target_date` = kemarin (H-1) di Asia/Jakarta. Run manual boleh override lewat
 Trigger DAG w/ config `{"target_date": "YYYY-MM-DD"}`. Minggu = Senin..Minggu dari `target_date`.
+
+## Aturan H-1 & run manual
+
+- Data diambil **Senin s/d `target_date`** (bukan sampai Minggu), jadi hari H (real-time, belum final) tidak pernah ikut dihitung. Baris weekly tetap dikunci ke minggu penuh (`start_date`=Senin, `end_date`=Minggu) dan isinya akumulasi sampai `target_date`.
+- DELETE tabel daily/produk hanya sampai `target_date`; baris setelahnya tidak disentuh.
+- Guard di `run_all` (gagal jelas, tidak ada yang ditulis):
+  - `target_date` >= hari ini (Asia/Jakarta) **ditolak**.
+  - Minggu yang sudah lewat **harus** dihitung ulang dengan `target_date` = tanggal **Minggu** minggu itu (tanggal tengah minggu akan menimpa weekly dengan akumulasi parsial).
+- Trigger manual tanpa conf: `target_date` = H-1 dari waktu trigger. Dengan conf `{"target_date": "YYYY-MM-DD"}`: tunduk pada guard di atas.
+
 
 ## Alur (`etl_orchestrator.run_all`)
 
@@ -33,10 +43,10 @@ EXTRACT (extract.py) — KSJ Link staging, db d_transaction
 TRANSFORM (transform.py)
   daily products → daily summaries → weekly summaries (1 baris per rider)
 
-LOAD (load.py) — 1 transaksi, DELETE-lalu-INSERT untuk minggu berjalan
+LOAD (load.py) — 1 transaksi, DELETE-lalu-INSERT (weekly: minggu penuh; daily/produk: Senin..target_date)
   ├─ rider_weekly_commission_summaries            (DELETE start_date/end_date = minggu ini)
-  ├─ rider_daily_commission_summaries             (DELETE transaction_date di dalam minggu)
-  └─ rider_daily_commission_summary_products      (DELETE transaction_date di dalam minggu)
+  ├─ rider_daily_commission_summaries             (DELETE transaction_date Senin..target_date)
+  └─ rider_daily_commission_summary_products      (DELETE transaction_date Senin..target_date)
   (tiap tabel: restart sequence id dari MAX(id)+1, insert batch 1.000)
 
 EMAIL: report statistik + total payout (best-effort), subject diawali [STAGING]

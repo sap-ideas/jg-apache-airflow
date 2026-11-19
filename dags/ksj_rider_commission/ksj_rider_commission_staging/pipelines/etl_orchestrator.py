@@ -5,7 +5,7 @@ Flow:
   2. Transform: daily products -> daily summaries -> weekly summaries
   3. Load (atomic, 1 transaksi): replace minggu berjalan di 3 tabel
   4. Email report (best-effort)
-Minggu = Senin..Minggu dari tanggal target (H-1).
+Minggu = Senin..Minggu dari tanggal target (H-1); data diambil Senin s/d target_date saja.
 """
 
 import logging
@@ -85,6 +85,16 @@ def run_all(config_ksj, target_date_str, dry_run=False):
     """Full ETL. dry_run=True: extract + transform + print totals, tanpa load & email."""
     start_date, end_date = _week_range(target_date_str)
 
+    # Aturan H-1: data hari ini (real-time, belum final) tidak boleh ikut dihitung.
+    target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+    today_jkt = datetime.now(timezone('Asia/Jakarta')).date()
+    if target_date >= today_jkt:
+        raise ValueError(f"target_date {target_date} belum boleh dihitung (hari ini {today_jkt}, aturan H-1).")
+    # Minggu yang sudah lewat harus dihitung ulang dengan tanggal Minggu-nya; tanggal tengah minggu
+    # akan menimpa baris weekly dengan akumulasi parsial.
+    if end_date < today_jkt and target_date != end_date:
+        raise ValueError(f"Minggu {start_date}..{end_date} sudah lewat; pakai target_date = {end_date} (Minggu).")
+
     print("=" * 65)
     print(f"  {TITLE.upper()}  |  date = {target_date_str}  |  week = {start_date} .. {end_date}")
     print("=" * 65)
@@ -99,14 +109,14 @@ def run_all(config_ksj, target_date_str, dry_run=False):
         df_by_prod = get_commission_scheme_by_prod_solds(config_ksj)
         df_extra = get_commission_extra_schemes(config_ksj)
         df_extra_by_prod = get_commission_extra_scheme_by_prod_solds(config_ksj)
-        df_trx = get_rider_daily_transaction_summaries(config_ksj, sd, ed)
-        df_trx_products = get_rider_daily_transaction_summary_products(config_ksj, sd, ed)
+        df_trx = get_rider_daily_transaction_summaries(config_ksj, sd, target_date_str)
+        df_trx_products = get_rider_daily_transaction_summary_products(config_ksj, sd, target_date_str)
         print(f"        schemes={len(df_schemes)} weekly_sales={len(df_by_weekly)} prod_solds={len(df_by_prod)} "
               f"extra={len(df_extra)} extra_prod={len(df_extra_by_prod)}")
         print(f"        trx_summaries={len(df_trx)} trx_products={len(df_trx_products)}")
 
         if df_trx.empty:
-            raise ValueError(f"Tidak ada transaction summaries untuk {sd}..{ed}; load dibatalkan.")
+            raise ValueError(f"Tidak ada transaction summaries untuk {sd}..{target_date_str}; load dibatalkan.")
 
         # ---- STEP 2: TRANSFORM ----
         print("\n  [2/3] TRANSFORM")
@@ -143,7 +153,7 @@ def run_all(config_ksj, target_date_str, dry_run=False):
         # ---- STEP 3: LOAD ----
         print("\n  [3/3] LOAD")
         t0 = time.time()
-        result = load_all(get_engine_ksj_stg(config_ksj), df_weekly, df_daily, df_products, start_date, end_date)
+        result = load_all(get_engine_ksj_stg(config_ksj), df_weekly, df_daily, df_products, start_date, end_date, target_date)
         for table, (deleted, inserted) in result.items():
             print(f"        {table}: -{deleted} / +{inserted}")
             stats[f"{table} (del/ins)"] = f"-{deleted:,} / +{inserted:,}"
