@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Keamanan: CSP melarang halaman mengirim data ke server mana pun (connect-src 'none', gambar hanya data:/blob:).
+     Script hanya boleh dari file ini sendiri + CDN Plotly/SheetJS, dan keduanya dikunci SRI (hash). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.plot.ly https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>__PAGE_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous"></script>
+<style>
+/* ===== Tokens ===== */
+:root {
+  --red: #FF3947;
+  --red-strong: #C8202C;
+  --red-hover: #B4232F;
+  --red-tint: #FFD6D9;
+  --red-wash: #FFF0F1;
+  --page: #FFFEFA;
+  --surface: #FFFFFF;
+  --surface-sunken: #F6F5F2;
+  --ink: #1F1F1F;
+  --ink-muted: #5E5E5E;
+  --ink-faint: #949494;
+  --line: #E6E4E0;
+  --line-strong: var(--ink);
+  --on-red: #FFFFFF;
+  --citrus: #E3EB0D;
+  --blue-breeze: #8EDEFF;
+  --caramel: #E8A957;
+  --green-tea: #115C3B;
+  --blue-joe: #0C2752;
+  --coffee: #6A3B14;
+  --positive: var(--green-tea);
+  --positive-wash: #E7F1EC;
+  --negative: var(--red-strong);
+  --negative-wash: var(--red-wash);
+  --warning: #8C5A1E;
+  --warning-wash: #FDF3E4;
+  --info: var(--blue-joe);
+  --info-wash: #E8F8FF;
+  --focus-ring: var(--blue-joe);
+  --chart-1: var(--red);
+  --chart-2: var(--blue-joe);
+  --chart-3: var(--caramel);
+  --chart-4: var(--green-tea);
+  --chart-5: var(--coffee);
+  --chart-context: var(--red-tint);
+  --chart-grid: var(--line);
+  --font-sans: "Lexend", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-pill: 999px;
+  --shadow-none: none;
+  --shadow-pop: 0 2px 4px rgba(31,31,31,0.06), 0 8px 24px rgba(31,31,31,0.10);
+  --border-hairline: 1px;
+  --border-focus: 2px;
+}
+
+/* ===== Components ===== */
+/* Jiwa Light Theme — component styles. Loaded after tokens.css; every value is a token. */
+
+
+.jj, .jj * { box-sizing: border-box; }
+.jj { font-family: var(--font-sans); color: var(--ink); font-size: 14px; line-height: 22px; font-weight: 500; -webkit-font-smoothing: antialiased; }
+.jj-page { background: var(--page); padding: var(--space-6); }
+
+/* ---------- Button ---------- */
+.jj-btn { font: inherit; font-weight: 600; font-size: 14px; line-height: 20px; display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 40px; padding: 0 var(--space-6); border-radius: var(--radius-pill); border: var(--border-hairline) solid transparent; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s; text-decoration: none; white-space: nowrap; }
+.jj-btn:focus-visible { outline: var(--border-focus) solid var(--focus-ring); outline-offset: 2px; }
+.jj-btn--primary { background: var(--red-strong); color: var(--on-red); }
+.jj-btn--primary:hover { background: var(--red-hover); }
+.jj-btn--secondary { background: var(--surface); color: var(--ink); border-color: var(--ink); }
+.jj-btn--secondary:hover { background: var(--surface-sunken); }
+.jj-btn--ghost { background: transparent; color: var(--red-strong); padding: 0 var(--space-3); }
+.jj-btn--ghost:hover { background: var(--red-wash); color: var(--red-hover); }
+.jj-btn--sm { height: 32px; padding: 0 var(--space-4); font-size: 13px; }
+.jj-btn[disabled] { background: var(--surface-sunken); color: var(--ink-faint); border-color: var(--line); cursor: not-allowed; }
+
+/* ---------- Badge ---------- */
+.jj-badge { display: inline-flex; align-items: center; gap: var(--space-1); font-size: 12px; line-height: 16px; font-weight: 600;
+  padding: 2px var(--space-2); border-radius: var(--radius-sm); white-space: nowrap; }
+.jj-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.jj-badge--positive { background: var(--positive-wash); color: var(--positive); }
+.jj-badge--negative { background: var(--negative-wash); color: var(--negative); }
+.jj-badge--warning  { background: var(--warning-wash); color: var(--warning); }
+.jj-badge--info     { background: var(--info-wash); color: var(--info); }
+.jj-badge--neutral  { background: var(--surface-sunken); color: var(--ink-muted); }
+.jj-badge--new      { background: var(--citrus); color: var(--ink); }
+.jj-badge--new::before { display: none; }
+
+/* ---------- Card + KPI ---------- */
+.jj-card { background: var(--surface); border: var(--border-hairline) solid var(--line); border-radius: var(--radius-md); padding: var(--space-6); }
+.jj-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); }
+.jj-kpi__label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--ink-muted); letter-spacing: .02em; }
+.jj-kpi__value { font-size: 32px; line-height: 36px; font-weight: 800; margin-top: var(--space-2); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.jj-kpi__foot { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); font-size: 12px; line-height: 16px; color: var(--ink-muted); font-weight: 400; }
+.jj-kpi--hero { background: var(--red); border-color: var(--red); color: var(--on-red); }
+.jj-kpi--hero .jj-kpi__label, .jj-kpi--hero .jj-kpi__foot { color: var(--on-red); }
+.jj-delta { font-size: 13px; line-height: 16px; font-weight: 600; }
+.jj-delta--up { color: var(--positive); }
+.jj-delta--down { color: var(--negative); }
+.jj-kpi--hero .jj-delta { color: var(--on-red); }
+
+/* ---------- Page header (editorial frame from the guideline) ---------- */
+.jj-header { border-bottom: var(--border-hairline) solid var(--line-strong); padding-bottom: var(--space-4); }
+.jj-header__top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); }
+.jj-eyebrow { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.jj-header__title { font-size: 28px; line-height: 34px; font-weight: 700; margin: var(--space-2) 0 0; }
+.jj-header__meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin-top: var(--space-3); font-size: 12px; line-height: 16px; color: var(--ink-muted); font-weight: 400; }
+.jj-header__meta b { color: var(--ink); font-weight: 600; }
+.jj-hero { background: var(--red); color: var(--on-red); border-radius: var(--radius-md); padding: var(--space-8) var(--space-6); }
+.jj-hero .jj-eyebrow { color: var(--on-red); }
+.jj-hero__title { font-size: 40px; line-height: 44px; font-weight: 800; letter-spacing: -0.01em; margin: var(--space-2) 0 0; }
+
+/* ---------- Table ---------- */
+.jj-table-wrap { background: var(--surface); border: var(--border-hairline) solid var(--line); border-radius: var(--radius-md); overflow-x: auto; }
+.jj-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.jj-table th { text-align: left; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--ink-muted); background: var(--surface-sunken);
+  padding: var(--space-2) var(--space-3); border-bottom: var(--border-hairline) solid var(--line); white-space: nowrap; }
+.jj-table td { padding: var(--space-3); border-bottom: var(--border-hairline) solid var(--line); }
+.jj-table tr:last-child td { border-bottom: 0; }
+.jj-table .num { text-align: right; }
+.jj-table tbody tr:hover td { background: var(--page); }
+.jj-table tr.is-selected td { background: var(--red-wash); }
+.jj-table td.strong { font-weight: 600; }
+
+/* ---------- Chips / tabs ---------- */
+.jj-chips { display: inline-flex; gap: var(--space-1); padding: var(--space-1); background: var(--surface-sunken); border-radius: var(--radius-pill); }
+.jj-chip { font: inherit; font-size: 13px; line-height: 18px; font-weight: 500; border: 0; background: transparent; color: var(--ink-muted);
+  padding: 6px var(--space-4); border-radius: var(--radius-pill); cursor: pointer; }
+.jj-chip[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
+.jj-chip:focus-visible { outline: var(--border-focus) solid var(--focus-ring); outline-offset: 2px; }
+
+/* ---------- Nav (top bar) ---------- */
+.jj-nav { display: flex; align-items: center; gap: var(--space-6); height: 56px; padding: 0 var(--space-6); background: var(--surface); border-bottom: var(--border-hairline) solid var(--line); }
+.jj-nav__brand { font-weight: 800; font-size: 16px; color: var(--red); letter-spacing: -0.01em; white-space: nowrap; }
+.jj-nav__links { display: flex; gap: var(--space-1); }
+.jj-nav__link { font-size: 14px; font-weight: 500; color: var(--ink-muted); text-decoration: none; padding: 6px var(--space-3); border-radius: var(--radius-pill); }
+.jj-nav__link:hover { color: var(--ink); background: var(--surface-sunken); }
+.jj-nav__link[aria-current="page"] { color: var(--red-strong); background: var(--red-wash); font-weight: 600; }
+
+/* ---------- Chart ---------- */
+.jj-chart text { font-family: var(--font-sans); }
+.jj-chart .axis { fill: var(--ink-muted); font-size: 12px; font-weight: 500; }
+.jj-chart .grid { stroke: var(--chart-grid); stroke-width: 1; }
+.jj-chart .base { stroke: var(--ink); stroke-width: 1; }
+.jj-chart .bar-context { fill: var(--chart-context); }
+.jj-chart .bar-hero { fill: var(--chart-1); }
+.jj-chart .line-hero { stroke: var(--chart-1); stroke-width: 2.5; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.jj-chart .line-2 { stroke: var(--chart-2); stroke-width: 2; fill: none; stroke-linejoin: round; }
+.jj-chart .dot-hero { fill: var(--chart-1); stroke: var(--surface); stroke-width: 2; }
+.jj-chart .value { fill: var(--red-strong); font-size: 12px; font-weight: 700; }
+.jj-chart .value-2 { fill: var(--chart-2); font-size: 12px; font-weight: 600; }
+.jj-legend { display: flex; gap: var(--space-4); font-size: 12px; line-height: 16px; color: var(--ink-muted); margin-bottom: var(--space-3); }
+.jj-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+@media (max-width: 640px) {
+  .jj-page { padding: var(--space-4); }
+  .jj-card { padding: var(--space-4); }
+  .jj-hero__title { font-size: 28px; line-height: 34px; }
+  .jj-nav { padding: 0 var(--space-4); gap: var(--space-3); }
+}
+
+
+
+/* ===== Dashboard: tambahan di atas komponen Jiwa Light Theme (semua nilai = token guide) ===== */
+:root { --content-w: none; --ease: cubic-bezier(.22,1,.36,1); }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--page); }        /* font 14/22 Medium dari .jj */
+button, input { font: inherit; }
+
+/* Layout: full width (permintaan user; guide default max 1280px), gutter space-6, padding atas halaman space-12 */
+.wrap { max-width: var(--content-w); margin: 0 auto; padding: var(--space-12) var(--space-6) var(--space-12); }
+.jj-nav { position: sticky; top: 0; z-index: 30; }
+.panel, .jj-kpi-row { margin-top: var(--space-8); }      /* space-8 antar bagian */
+
+/* Ikon outline 16px, stroke 1.5, warna ikut teks (ink-muted) */
+.ico { width: 16px; height: 16px; flex: 0 0 auto; color: var(--ink-muted); }
+
+/* Header */
+.jj-header__title { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+/* Filter tanggal (perilaku & ukuran popover dipertahankan, warna = token) */
+.filter { position: relative; }
+.date-btn .lbl { color: var(--ink-muted); font-weight: 500; }
+.date-btn .chev { transition: transform .15s; }
+.date-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.date-pop {
+  position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 50; width: min(300px, calc(100vw - 32px));
+  background: var(--surface); border-radius: var(--radius-md); padding: var(--space-3); box-shadow: var(--shadow-pop);
+  opacity: 0; visibility: hidden; transform: translateY(-6px); transform-origin: top right;
+  transition: opacity .18s, transform .18s var(--ease), visibility 0s linear .18s;
+}
+.date-pop.open { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.pop-title { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); margin: 0 0 var(--space-2); }
+/* Preset = .jj-chip di dalam wadah .jj-chips (sunken); dibungkus beberapa baris */
+/* Preset periode: grid 3 kolom (pola yang sama dengan web ungu), warna dari token guide:
+   idle = red-wash + red-strong (5.1:1), hover = red-tint, terpilih = red-strong + putih (5.7:1). */
+.pp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-1); margin-bottom: var(--space-3); }
+.pp {
+  border: 0; border-radius: var(--radius-sm); padding: 7px 6px; text-align: left; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 11px; line-height: 14px; font-weight: 600; color: var(--red-strong); background: var(--red-wash);
+  transition: transform .25s var(--ease), background-color .15s, color .15s;
+}
+.pp:hover { transform: translateY(-2px); background: var(--red-tint); }
+.pp:active { transform: translateY(0) scale(.98); }
+.pp[aria-pressed="true"], .pp[aria-pressed="true"]:hover { background: var(--red-strong); color: var(--on-red); }
+.pp:focus-visible { outline: var(--border-focus) solid var(--focus-ring); outline-offset: 2px; }
+.cal-day { height: 26px; }
+
+.cal { border: var(--border-hairline) solid var(--line); border-radius: var(--radius-md); padding: var(--space-2); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-1); }
+.cal-month { font-size: 13px; line-height: 18px; font-weight: 600; }
+.cal-nav { width: 28px; height: 28px; border: 0; border-radius: var(--radius-pill); display: grid; place-items: center; background: var(--surface-sunken); color: var(--ink); font-size: 16px; font-weight: 600; line-height: 1; cursor: pointer; transition: background-color .15s, color .15s, opacity .15s; }
+.cal-nav:hover:not(:disabled) { background: var(--line); }
+.cal-nav:disabled { opacity: .35; cursor: default; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.cal-dow span { text-align: center; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--ink-muted); padding: 2px 0 var(--space-1); }
+.cal-day { height: 28px; border: 0; border-radius: 0; background: transparent; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--ink); font-variant-numeric: tabular-nums; cursor: pointer; transition: background-color .12s, color .12s; }
+.cal-day:not(:disabled):hover { background: var(--surface-sunken); border-radius: var(--radius-sm); }
+.cal-day.in-range { background: var(--red-wash); }
+.cal-day.in-range:not(:disabled):hover { border-radius: 0; }
+.cal-day.start, .cal-day.end, .cal-day.start:hover, .cal-day.end:hover { background: var(--red-strong); color: var(--on-red); font-weight: 600; }
+.cal-day.start { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.cal-day.end { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.cal-day.start.end { border-radius: var(--radius-sm); }
+.cal-day.today:not(.start):not(.end) { box-shadow: inset 0 0 0 1px var(--ink); border-radius: var(--radius-sm); }
+.cal-day.no-data:not(.start):not(.end) { color: var(--ink-muted); }
+.cal-day:disabled { color: var(--ink-faint); cursor: not-allowed; }
+.cal-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-3); }
+.cal-sel { font-size: 12px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cal-sel.muted { color: var(--ink-muted); font-weight: 400; }
+.pop-note { margin-top: var(--space-2); font-size: 12px; line-height: 16px; color: var(--ink-muted); font-weight: 400; }
+.cal-day:focus-visible, .cal-nav:focus-visible, .lg-item:focus-visible { outline: var(--border-focus) solid var(--focus-ring); outline-offset: 2px; }
+
+/* KPI: nilai dari komponen guide; hanya state delta netral yang ditambah */
+.jj-delta--flat { color: var(--ink-muted); }
+
+/* Kartu: judul h2 (20/26 Bold), seperti contoh Chart di guide */
+.card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap; }
+.card-title { font-size: 20px; line-height: 26px; font-weight: 700; margin: 6px 0 12px; }
+.caption { font-size: 12px; line-height: 16px; color: var(--ink-muted); margin-top: var(--space-2); font-weight: 400; }
+.plot-wrap { position: relative; }
+#trendChart { width: 100%; aspect-ratio: 2.8 / 1; height: auto; min-height: 240px; max-height: 520px; transition: opacity .3s, filter .3s; }
+#trendChart.is-updating { opacity: .35; filter: blur(1.5px); }
+
+/* Chart: fokus legend + kursor + titik line (perilaku dipertahankan) */
+#trendChart .barlayer, #trendChart .scatterlayer { transition: opacity .3s; }
+#trendChart.focus-income .scatterlayer { opacity: .14; }
+#trendChart.focus-order .barlayer { opacity: .14; }
+#trendChart .nsewdrag, #trendChart .drag { cursor: default !important; }
+#trendChart.is-pointing .nsewdrag, #trendChart.is-pointing .drag { cursor: pointer !important; }
+#trendChart .scatterlayer .points path { transition: fill .15s, stroke-width .15s; }
+#trendChart .scatterlayer .points path.is-active { fill: var(--chart-2) !important; stroke-width: 3px !important; }
+
+/* Tooltip: radius-sm (guide: "badges, tooltips"), shadow-pop karena melayang */
+.chart-tip { position: absolute; left: 0; top: 0; z-index: 5; min-width: 200px; pointer-events: none; padding: var(--space-2) var(--space-3); background: var(--surface); border-radius: var(--radius-sm); box-shadow: var(--shadow-pop); opacity: 0; will-change: transform, opacity; transition: opacity .16s, transform .15s var(--ease); }
+.chart-tip.show { opacity: 1; }
+.tip-date { margin-bottom: var(--space-2); color: var(--ink-muted); font-size: 12px; line-height: 16px; font-weight: 600; }
+.tip-row { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; line-height: 18px; font-weight: 400; }
+.tip-row + .tip-row { margin-top: var(--space-1); }
+.tip-dot { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+.tip-name { flex: 1; color: var(--ink-muted); }
+.tip-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tip-delta { min-width: 48px; text-align: right; font-size: 13px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tip-delta.up { color: var(--positive); }
+.tip-delta.down { color: var(--negative); }
+.tip-delta.flat { color: var(--ink-muted); }
+
+/* Legend = .jj-legend (swatch 10x10, 12px ink-muted), item tetap tombol untuk toggle */
+.lg-item { display: inline-flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; transition: color .15s, opacity .2s; }
+.lg-item:hover { color: var(--ink); }
+.lg-item i { transition: background-color .25s, transform .35s var(--ease); }
+.jj-legend.has-focus .lg-item:not(.is-focus) { opacity: .5; }
+.lg-item.off { color: var(--ink-faint); text-decoration: line-through; }
+.lg-item.off i { background: var(--line) !important; }
+.lg-item.pop i { animation: dotPop .42s var(--ease); }
+.lg-item.nope { animation: nope .36s ease; }
+@keyframes dotPop { 0% { transform: scale(.4); } 60% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes nope { 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+
+/* Download: tombol secondary sm */
+.dl { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: 6px; }
+.dl-label { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+
+/* Tabel: scroll di dalam wrapper; header & baris Total menempel */
+.jj-table-wrap { max-height: 420px; overflow: auto; }
+.jj-table th, .jj-table td { white-space: nowrap; }
+.jj-table thead th { position: sticky; top: 0; z-index: 2; }
+.jj-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--surface-sunken); font-weight: 600; border-top: var(--border-hairline) solid var(--line-strong); border-bottom: 0; }
+.jj-table td.zero { color: var(--ink-muted); }
+.empty { padding: var(--space-8) var(--space-4); text-align: center; color: var(--ink-muted); border: var(--border-hairline) dashed var(--line); border-radius: var(--radius-md); font-weight: 400; }
+
+@media (max-width: 720px) {
+  .wrap { padding: var(--space-6) var(--space-4) var(--space-8); }
+  .jj-header__top { flex-wrap: wrap; row-gap: var(--space-2); }
+  .filter { width: 100%; }
+  .filter .date-btn { width: 100%; justify-content: space-between; }
+  .date-pop { left: 0; right: auto; width: 100%; transform-origin: top left; }
+  .jj-kpi-row { grid-template-columns: 1fr; }
+  #trendChart { min-height: 250px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+</style>
+</head>
+<body class="jj">
+
+<nav class="jj-nav" aria-label="Utama">
+  <span class="jj-nav__brand">Janji Jiwa</span>
+  <div class="jj-nav__links">
+    <a class="jj-nav__link" href="#" aria-current="page">Sales performance</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <header class="jj-header">
+    <div class="jj-header__top">
+      <div class="jj-eyebrow" id="eyebrow">Sales performance</div>
+      <div class="filter">
+        <button class="jj-btn jj-btn--secondary jj-btn--sm date-btn" id="dateChip" type="button" aria-haspopup="true" aria-expanded="false">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>
+          <span class="lbl">Date</span><span class="val" id="dateChipValue">This month</span>
+          <svg class="ico chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+
+        <div class="date-pop" id="datePopover" role="dialog" aria-label="Pilih periode">
+          <div class="pop-title">Periode</div>
+          <div class="pp-grid" id="presetGrid" role="group" aria-label="Preset periode"></div>
+          <div class="pop-title">Custom range</div>
+          <div class="cal" id="cal">
+            <div class="cal-head">
+              <button type="button" class="cal-nav" id="calPrev" aria-label="Bulan sebelumnya">&#8249;</button>
+              <div class="cal-month" id="calMonth"></div>
+              <button type="button" class="cal-nav" id="calNext" aria-label="Bulan berikutnya">&#8250;</button>
+            </div>
+            <div class="cal-grid cal-dow"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
+            <div class="cal-grid" id="calDays"></div>
+          </div>
+          <div class="cal-foot">
+            <div class="cal-sel muted" id="calSel">Pilih tanggal awal</div>
+            <button class="jj-btn jj-btn--primary jj-btn--sm" id="customApply" type="button" disabled>Apply</button>
+          </div>
+          <div class="pop-note" id="rangeError"></div>
+        </div>
+      </div>
+    </div>
+    <h1 class="jj-header__title"><span id="pageTitle"></span><span class="jj-badge jj-badge--new" id="newBadge" hidden>New Store</span></h1>
+    <div class="jj-header__meta">
+      <span>Period <b id="metaPeriod"></b></span>
+      <span>Source <b>Jiwa Group sales data</b></span>
+      <span>Refreshed <b id="metaRefreshed"></b></span>
+    </div>
+  </header>
+
+  <section class="jj-kpi-row" aria-label="Ringkasan">
+    <div class="jj-card jj-kpi--hero">
+      <div class="jj-kpi__label">Total Sales</div>
+      <div class="jj-kpi__value" id="kpiSales">Rp 0</div>
+      <div class="jj-kpi__foot" id="kpiSalesFoot"></div>
+    </div>
+    <div class="jj-card">
+      <div class="jj-kpi__label">Total Orders</div>
+      <div class="jj-kpi__value" id="kpiOrders">0</div>
+      <div class="jj-kpi__foot" id="kpiOrdersFoot"></div>
+    </div>
+  </section>
+
+  <section class="jj-card panel">
+    <div class="jj-eyebrow">Daily sales and orders</div>
+    <h2 class="card-title" id="chartTitle"></h2>
+    <div class="jj-legend" id="chartLegend" role="group" aria-label="Tampilkan seri">
+      <button class="lg-item" type="button" data-key="income" aria-pressed="true"><i style="background:var(--chart-1)"></i>Daily Income</button>
+      <button class="lg-item" type="button" data-key="order" aria-pressed="true"><i style="background:var(--chart-2)"></i>Total Order</button>
+    </div>
+    <div class="plot-wrap">
+      <div id="trendChart" role="img" aria-label="Grafik harian: Daily Income (batang) dan Total Order (garis)"></div>
+      <div class="chart-tip" id="chartTip" aria-hidden="true"></div>
+      <div class="empty" id="chartEmpty" style="display:none">Tidak ada data pada periode ini.</div>
+    </div>
+    <div class="caption" id="chartCaption"></div>
+  </section>
+
+  <section class="jj-card panel">
+    <div class="card-head">
+      <div>
+        <div class="jj-eyebrow" id="tableEyebrow">Revenue sharing</div>
+        <h2 class="card-title" id="tableTitle">Revenue sharing by payment method</h2>
+      </div>
+      <div class="dl" role="group" aria-label="Download">
+        <span class="dl-label">Download</span>
+        <button class="jj-btn jj-btn--secondary jj-btn--sm" type="button" data-fmt="csv"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>CSV</button>
+        <button class="jj-btn jj-btn--secondary jj-btn--sm" type="button" data-fmt="xlsx"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span class="dl-text">Excel</span></button>
+        <button class="jj-btn jj-btn--secondary jj-btn--sm" type="button" data-fmt="json"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>JSON</button>
+      </div>
+    </div>
+    <div class="jj-table-wrap" id="tableWrap">
+      <table class="jj-table" id="detailTable"><thead></thead><tbody></tbody><tfoot></tfoot></table>
+    </div>
+    <div class="empty" id="tableEmpty" style="display:none">Tidak ada data pada periode ini.</div>
+    <div class="caption" id="tableCaption"></div>
+  </section>
+
+</main>
+
+<script>
+window.DASHBOARD_DATA = /*__DASHBOARD_DATA__*/null;
+</script>
+<script>
+(function () {
+  'use strict';
+
+  // v1 (HTML statis): data di-embed oleh notebook generator.
+  // Web app live nanti: ganti isi fungsi ini dengan fetch ke API (shape JSON sama).
+  function loadData() { return Promise.resolve(window.DASHBOARD_DATA); }
+
+  // ---------- Format: angka Indonesia (titik ribuan), semua 0 desimal ----------
+  const nf = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+  const fmt = v => nf.format(Math.round(Number(v) || 0));
+  const fmtRp = v => 'Rp ' + fmt(v);
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const toDate = s => { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+  const toStr = dt => dt.toISOString().slice(0, 10);
+  const addDays = (s, n) => { const dt = toDate(s); dt.setUTCDate(dt.getUTCDate() + n); return toStr(dt); };
+  const daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / 86400000);
+  const fmtDateShort = s => { const [y, m, d] = s.split('-'); return Number(d) + '/' + m + '/' + y; };
+  const fmtLong = s => { const [y, m, d] = s.split('-').map(Number); return d + ' ' + MON[m - 1] + ' ' + y; };
+  const fmtDM = s => { const [, m, d] = s.split('-').map(Number); return d + ' ' + MON[m - 1]; };
+
+  function todayJakarta() {
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const g = t => p.find(x => x.type === t).value;
+    return g('year') + '-' + g('month') + '-' + g('day');
+  }
+
+  const PRESETS = [
+    { key: 'today', label: 'Today' }, { key: 'yesterday', label: 'Yesterday' }, { key: 'last7', label: 'Last 7 days' },
+    { key: 'last30', label: 'Last 30 days' }, { key: 'last60', label: 'Last 60 days' }, { key: 'thisMonth', label: 'This month' },
+    { key: 'lastMonth', label: 'Last month' },
+  ];
+
+  // Lock L60D: hanya 60 hari terakhir (dihitung dari hari dibuka, WIB), dan tidak pernah lebih awal dari data_start
+  // (tanggal outlet mulai beroperasi; transaksi sebelumnya = data testing).
+  const lookback = () => (DATA && DATA.lookback_days) || 60;
+  function lockWindow() {
+    const t = todayJakarta();
+    let lo = addDays(t, -lookback());
+    const ds = DATA && DATA.data_start;
+    if (ds && ds > lo) lo = ds;
+    return [lo, t];
+  }
+
+  function presetRange(key) {
+    const t = todayJakarta();
+    const [y, m] = t.split('-').map(Number);
+    const pad = n => String(n).padStart(2, '0');
+    switch (key) {
+      case 'today':     return [t, t];
+      case 'yesterday': return [addDays(t, -1), addDays(t, -1)];
+      case 'last7':     return [addDays(t, -7), addDays(t, -1)];
+      case 'last30':    return [addDays(t, -30), addDays(t, -1)];
+      case 'last60':    return [addDays(t, -60), addDays(t, -1)];
+      case 'thisMonth': return [y + '-' + pad(m) + '-01', t];
+      case 'lastMonth': { const lp = addDays(y + '-' + pad(m) + '-01', -1); return [lp.slice(0, 8) + '01', lp]; }
+      default:          return [null, null];
+    }
+  }
+
+  // ---------- State ----------
+  let DATA = null;
+  let state = { preset: 'thisMonth', start: null, end: null };
+  let currentRows = [];
+  const $ = id => document.getElementById(id);
+
+  function chipLabel() {
+    if (state.preset === 'custom') return state.start === state.end ? fmtDateShort(state.start) : fmtDateShort(state.start) + ' – ' + fmtDateShort(state.end);
+    return PRESETS.find(p => p.key === state.preset).label;
+  }
+  function periodText() {
+    const a = state.start, b = state.end;
+    if (a === b) return fmtLong(a);
+    return a.slice(0, 4) === b.slice(0, 4) ? fmtDM(a) + ' – ' + fmtLong(b) : fmtLong(a) + ' – ' + fmtLong(b);
+  }
+
+  function applyFilter() {
+    if (state.preset !== 'custom') { const [s, e] = presetRange(state.preset); state.start = s; state.end = e; }
+    const [lo, hi] = lockWindow();                       // jepit ke jendela L60D + data_start
+    if (state.start < lo) state.start = lo;
+    if (state.end > hi) state.end = hi;
+    currentRows = DATA.rows.filter(r => r.date >= state.start && r.date <= state.end);
+    $('dateChipValue').textContent = chipLabel();
+    $('metaPeriod').textContent = periodText();
+    document.querySelectorAll('.pp').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.key === state.preset)));
+    renderKpi(currentRows); renderChart(currentRows); renderTable(currentRows);
+  }
+
+  // ---------- Count-up angka KPI ----------
+  const rafs = new Map();
+  function countTo(el, to, formatter) {
+    const from = Number(el.dataset.v || 0);
+    el.dataset.v = to;
+    cancelAnimationFrame(rafs.get(el));
+    if (reduceMotion || from === to) { el.textContent = formatter(to); return; }
+    const t0 = performance.now(), dur = 700;
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 4);   // easeOutQuart
+      el.textContent = formatter(from + (to - from) * e);
+      if (k < 1) rafs.set(el, requestAnimationFrame(step));
+    };
+    rafs.set(el, requestAnimationFrame(step));
+  }
+
+  // ---------- KPI + pembanding periode sebelumnya ----------
+  const sumOf = (rows, f) => rows.reduce((a, r) => a + (Number(r[f]) || 0), 0);
+
+  // Pembanding = periode sebelumnya dengan jumlah hari yang sama. Kalau periode itu jatuh sebelum data_start
+  // (atau tidak ada datanya), tidak ada pembanding: tampil "—", bukan 0%.
+  function compareBase() {
+    const n = daysBetween(state.start, state.end) + 1;
+    const ps = addDays(state.start, -n), pe = addDays(state.start, -1);
+    if (ps < lockWindow()[0]) return null;
+    const rows = DATA.rows.filter(r => r.date >= ps && r.date <= pe);
+    if (!rows.length) return null;
+    return { sales: sumOf(rows, 'daily_income'), orders: sumOf(rows, 'total_order'), n };
+  }
+  function footHtml(curr, prev, base, formatter) {
+    if (!base || !prev) return '<span class="jj-delta jj-delta--flat">—</span><span>Belum ada periode pembanding</span>';
+    const p = Math.round((curr - prev) / prev * 100);
+    const cls = p > 0 ? 'jj-delta--up' : p < 0 ? 'jj-delta--down' : 'jj-delta--flat';
+    const sign = p > 0 ? '▲ ' : p < 0 ? '▼ ' : '';
+    const label = base.n === 1 ? 'hari sebelumnya' : base.n + ' hari sebelumnya';
+    return '<span class="jj-delta ' + cls + '">' + sign + nf.format(Math.abs(p)) + '%</span><span>vs ' + formatter(prev) + ' · ' + label + '</span>';
+  }
+  function renderKpi(rows) {
+    const sales = Math.round(sumOf(rows, 'daily_income')), orders = Math.round(sumOf(rows, 'total_order'));
+    countTo($('kpiSales'), sales, fmtRp);
+    countTo($('kpiOrders'), orders, fmt);
+    const base = compareBase();
+    $('kpiSalesFoot').innerHTML = footHtml(sales, base && base.sales, base, fmtRp);
+    $('kpiOrdersFoot').innerHTML = footHtml(orders, base && base.orders, base, fmt);
+  }
+
+  // ---------- Chart ----------
+  function byDate(rows) {
+    const map = new Map();
+    rows.forEach(r => {
+      const g = map.get(r.date) || { date: r.date, total_order: 0, daily_income: 0 };
+      g.total_order += Number(r.total_order) || 0; g.daily_income += Number(r.daily_income) || 0;
+      map.set(r.date, g);
+    });
+    return Array.from(map.values());
+  }
+  // Judul chart = temuan (guideline), bukan "Chart 1".
+  function findingTitle(rows) {
+    if (!rows.length) return 'No sales recorded in this period';
+    if (rows.length === 1) return fmtRp(rows[0].daily_income) + ' from ' + fmt(rows[0].total_order) + ' orders on ' + fmtDM(rows[0].date);
+    const top = rows.reduce((a, r) => (r.daily_income > a.daily_income ? r : a), rows[0]);
+    return 'Sales peaked at ' + fmtRp(top.daily_income) + ' on ' + fmtDM(top.date);
+  }
+
+  // ----- Chart interaktif: legend toggle animasi, fokus saat hover, tooltip minimal -----
+  const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const C_INCOME = '#FF3947', C_ORDER = '#0C2752';             // chart-1 (red) & chart-2 (blue-joe) dari token tema
+  const SERIES = [
+    { key: 'income', idx: 0, name: 'Daily Income', color: C_INCOME, field: 'daily_income', fmt: fmtRp },
+    { key: 'order',  idx: 1, name: 'Total Order',  color: C_ORDER,  field: 'total_order',  fmt: fmt },
+  ];
+  const seriesOn = { income: true, order: true };
+  let busy = false;                       // satu animasi legend dalam satu waktu
+  let chartRows = [], hoverIdx = -1, labelIdx = -1;     // labelIdx = posisi annotation label nilai terakhir
+  const ANIM_MS = reduceMotion ? 0 : 560;
+
+  function deltaTxt(curr, prev) {
+    if (prev == null || !Number(prev)) return '<span class="tip-delta"></span>';
+    const p = Math.round((curr - prev) / prev * 100);
+    return '<span class="tip-delta ' + (p > 0 ? 'up' : p < 0 ? 'down' : 'flat') + '">' + (p > 0 ? '▲ ' : p < 0 ? '▼ ' : '') + nf.format(Math.abs(p)) + '%</span>';
+  }
+  function placeTip(ev) {
+    const tip = $('chartTip'), wr = tip.parentElement.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = ev.clientX - wr.left + 16;
+    if (x + tw > wr.width - 6) x = ev.clientX - wr.left - tw - 16;
+    x = Math.max(6, x);
+    const y = Math.max(6, Math.min(ev.clientY - wr.top - th / 2, wr.height - th - 6));
+    tip.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+  }
+  function showTip(i, ev) {
+    const r = chartRows[i], p = i ? chartRows[i - 1] : null, tip = $('chartTip');
+    if (!r || busy) return;
+    tip.innerHTML = '<div class="tip-date">' + DAYS[toDate(r.date).getUTCDay()] + ', ' + fmtDateShort(r.date) + '</div>' +
+      SERIES.filter(s => seriesOn[s.key]).map(s =>
+        '<div class="tip-row"><i class="tip-dot" style="background:' + s.color + '"></i><span class="tip-name">' + s.name + '</span><span class="tip-val">' + s.fmt(r[s.field]) + '</span>' + deltaTxt(r[s.field], p && p[s.field]) + '</div>').join('');
+    if (ev) {
+      if (!tip.classList.contains('show')) { tip.style.transition = 'opacity .16s'; placeTip(ev); void tip.offsetWidth; tip.style.transition = ''; }
+      placeTip(ev);
+    }
+    hoverIdx = i; tip.classList.add('show');
+  }
+  function hideTip() { hoverIdx = -1; $('chartTip').classList.remove('show'); }
+  function bindHover() {
+    const el = $('trendChart');
+    if (el.removeAllListeners) { el.removeAllListeners('plotly_hover'); el.removeAllListeners('plotly_unhover'); }
+    // hovermode 'closest': bar hanya ter-hover kalau kursor di dalam kotak bar,
+    // line hanya ter-hover kalau kursor tepat di titiknya (hoverdistance kecil).
+    el.on('plotly_hover', d => {
+      const pt = d.points[0];
+      showTip(pt.pointNumber, d.event);
+      el.classList.add('is-pointing');
+      markPoint(pt.curveNumber === 1 ? pt.pointNumber : -1);
+      setFocus(pt.curveNumber === 1 ? 'order' : 'income');   // seri lain jadi redup, sama seperti hover legend
+    });
+    el.on('plotly_unhover', () => { hideTip(); el.classList.remove('is-pointing'); markPoint(-1); setFocus(null); });
+  }
+  function markPoint(i) {
+    $('trendChart').querySelectorAll('.scatterlayer .trace .points path').forEach((p, k) => p.classList.toggle('is-active', k === i));
+  }
+  document.addEventListener('mousemove', e => { if (hoverIdx >= 0) placeTip(e); });
+
+  // Hover legend: seri lain diredupkan supaya fokus ke seri yang di-hover.
+  function setFocus(key) {
+    const el = $('trendChart'), lg = $('chartLegend');
+    el.classList.remove('focus-income', 'focus-order');
+    lg.classList.remove('has-focus');
+    lg.querySelectorAll('.lg-item').forEach(b => b.classList.remove('is-focus'));
+    if (!key || busy || !seriesOn[key] || !chartRows.length) return;
+    el.classList.add('focus-' + key);
+    lg.classList.add('has-focus');
+    lg.querySelector('.lg-item[data-key="' + key + '"]').classList.add('is-focus');
+  }
+
+  // Tween manual (bukan Plotly.animate, yang bermasalah di chart dua sumbu):
+  // tiap frame menulis nilai y * k ke satu trace saja, frame berikutnya menunggu frame sebelumnya selesai.
+  function tween(dur, onFrame) {
+    return new Promise(resolve => {
+      if (!dur) { Promise.resolve(onFrame(1)).then(resolve); return; }
+      const t0 = performance.now();
+      const step = now => {
+        const k = Math.min(1, (now - t0) / dur);
+        const e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;   // easeInOutCubic
+        Promise.resolve(onFrame(e)).then(() => { if (k < 1) requestAnimationFrame(step); else resolve(); });
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  function toggleSeries(key) {
+    const s = SERIES.find(x => x.key === key), el = $('trendChart'), btn = document.querySelector('.lg-item[data-key="' + key + '"]');
+    if (busy || !chartRows.length) return;
+    if (seriesOn[key] && SERIES.filter(x => seriesOn[x.key]).length === 1) {          // minimal satu seri harus tampil
+      btn.classList.remove('nope'); void btn.offsetWidth; btn.classList.add('nope'); return;
+    }
+    const real = chartRows.map(r => Math.round(r[s.field]));
+    const frame = k => Plotly.restyle(el, { y: [real.map(v => v * k)], opacity: k }, [s.idx]);
+    // Label nilai terakhir menempel di batang Daily Income: disembunyikan sebelum batang turun, dimunculkan setelah naik.
+    const label = v => (key === 'income' && labelIdx >= 0) ? Plotly.relayout(el, { ['annotations[' + labelIdx + '].visible']: v }) : Promise.resolve();
+    busy = true; hideTip(); setFocus(null);
+    btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop');
+
+    let run;
+    if (seriesOn[key]) {                                   // sembunyikan: turun ke dasar + memudar
+      seriesOn[key] = false; btn.classList.add('off'); btn.setAttribute('aria-pressed', 'false');
+      run = label(false)
+        .then(() => tween(ANIM_MS, e => frame(1 - e)))
+        .then(() => Plotly.restyle(el, { visible: false, y: [real], opacity: 1 }, [s.idx]));
+    } else {                                               // tampilkan: naik dari dasar + muncul
+      seriesOn[key] = true; btn.classList.remove('off'); btn.setAttribute('aria-pressed', 'true');
+      run = Plotly.restyle(el, { visible: true, y: [real.map(() => 0)], opacity: 0 }, [s.idx])
+        .then(() => tween(ANIM_MS, e => frame(e)))
+        .then(() => label(true));
+    }
+    const done = () => { busy = false; if (btn.matches(':hover')) setFocus(key); };
+    run.then(done, done);
+  }
+  document.querySelectorAll('.lg-item').forEach(b => {
+    b.addEventListener('click', () => toggleSeries(b.dataset.key));
+    b.addEventListener('mouseenter', () => setFocus(b.dataset.key));
+    b.addEventListener('mouseleave', () => setFocus(null));
+    b.addEventListener('focus', () => setFocus(b.dataset.key));
+    b.addEventListener('blur', () => setFocus(null));
+  });
+
+  // Skala sumbu "rapi": 4 interval sama besar di kedua sumbu, jadi gridline kanan sejajar dengan angka kiri.
+  function niceStep(x, set) {
+    const mag = Math.pow(10, Math.floor(Math.log10(x)));
+    const n = x / mag;
+    return (set.find(v => v >= n - 1e-9) || 10) * mag;
+  }
+  function axisScale(max, set) {
+    const step = Math.max(1, niceStep(Math.max(max, 1) * 1.04 / 4, set));
+    return { max: step * 4, vals: [0, 1, 2, 3, 4].map(i => i * step) };
+  }
+
+  let chartFirst = true, lastNarrow = null, resizeTimer = null;
+  // Kalau lebar layar melewati batas "sempit" (HP <-> desktop), susun ulang margin & judul sumbu.
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!chartRows.length) return;
+      if (($('trendChart').parentElement.clientWidth < 520) !== lastNarrow) renderChart(currentRows);
+    }, 200);
+  });
+
+  function renderChart(detailRows) {
+    const rows = byDate(detailRows), el = $('trendChart');
+    $('chartTitle').textContent = findingTitle(rows);
+    if (!rows.length) { Plotly.purge(el); chartFirst = true; chartRows = []; hideTip(); el.style.display = 'none'; $('chartEmpty').style.display = 'block'; return; }
+    el.style.display = 'block'; $('chartEmpty').style.display = 'none';
+
+    const x = rows.map(r => r.date);
+    chartRows = rows; hideTip();
+
+    const traces = [
+      { type: 'bar', name: 'Daily Income', x, y: rows.map(r => Math.round(r.daily_income)), yaxis: 'y', opacity: 1,
+        visible: seriesOn.income, marker: { color: C_INCOME }, hoverinfo: 'none' },
+      // .line-2 di guide: chart-2, stroke 2px, garis lurus (polyline), sambungan round
+      { type: 'scatter', mode: 'lines+markers', name: 'Total Order', x, y: rows.map(r => Math.round(r.total_order)), yaxis: 'y2', opacity: 1,
+        visible: seriesOn.order, line: { color: C_ORDER, width: 2, shape: 'linear' },
+        marker: { size: 8, color: '#fff', line: { color: C_ORDER, width: 2 } }, hoverinfo: 'none' },
+    ];
+    const maxOf = f => Math.max(1, ...rows.map(r => Number(r[f]) || 0));
+    const incomeScale = axisScale(maxOf('daily_income'), [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]);
+    const orderScale  = axisScale(maxOf('total_order'),  [1, 2, 5, 10]);          // order = bilangan bulat
+
+    // Judul sumbu Y dipasang manual (annotation) dengan jarak pasti dari angka, supaya tidak pernah bertabrakan:
+    // lebar angka terpanjang diukur dulu, lalu margin & posisi judul dihitung dari situ.
+    const FONT_STACK = '"Lexend",system-ui,-apple-system,"Segoe UI",sans-serif';
+    const INK_MUTED = '#5E5E5E', LINE = '#E6E4E0', INK = '#1F1F1F', RED_STRONG = '#C8202C';
+    const tickFont = { size: 12, color: INK_MUTED };      // guide: axis text ink-muted 12px
+    const textW = txt => {
+      const ctx = textW.ctx || (textW.ctx = document.createElement('canvas').getContext('2d'));
+      ctx.font = '500 12px ' + FONT_STACK;
+      return ctx.measureText(txt).width;
+    };
+    // Semua digit dianggap selebar "8" (kasus terburuk). Faktor 1.1 + 2px karena ukuran teks SVG sedikit lebih lebar dari hasil ukur canvas.
+    const widest = max => textW(fmt(max).replace(/\d/g, '8')) * 1.1 + 2;
+    // TICK_GAP 20 = jarak visual ±14px antara angka dan judul + kompensasi offset bawaan teks yang diputar (±6px).
+    const TICK_GAP = 20, TITLE_W = 14, EDGE = 8;
+    const wLeft = widest(orderScale.max), wRight = widest(incomeScale.max);
+    const narrow = el.parentElement.clientWidth < 520;
+    lastNarrow = narrow;
+    const yTitle = (text, side, tickW) => ({
+      text, showarrow: false, xref: 'paper', yref: 'paper', x: side === 'left' ? 0 : 1, y: .5,
+      xanchor: side === 'left' ? 'right' : 'left', yanchor: 'middle', textangle: side === 'left' ? -90 : 90,
+      xshift: (side === 'left' ? -1 : 1) * (tickW + TICK_GAP), font: { size: 12, color: INK_MUTED },
+    });
+    // Guide: "Label the latest value directly in red-strong" (.value: 12px Bold). Latar putih supaya tetap terbaca bila tertimpa garis.
+    const last = rows[rows.length - 1];
+    const latestLabel = {
+      text: '<b>' + fmt(last.daily_income) + '</b>', showarrow: false, xref: 'x', yref: 'y', x: last.date, y: Math.round(last.daily_income),
+      xanchor: 'center', yanchor: 'bottom', yshift: 4, bgcolor: 'rgba(255,255,255,.92)', borderpad: 2,
+      font: { size: 12, color: RED_STRONG, family: FONT_STACK }, visible: seriesOn.income,
+    };
+    const annotations = narrow ? [] : [yTitle('Total Order', 'left', wLeft), yTitle('Daily Income (Rp)', 'right', wRight)];
+    labelIdx = annotations.push(latestLabel) - 1;
+    const layout = {
+      // Layar sempit (HP): judul sumbu Y disembunyikan supaya area plot tidak terjepit (legend di atas sudah menjelaskan seri).
+      margin: narrow ? { l: Math.ceil(wLeft + EDGE), r: Math.ceil(wRight + EDGE), t: 24, b: 14 }
+                     : { l: Math.ceil(wLeft + TICK_GAP + TITLE_W + EDGE), r: Math.ceil(wRight + TICK_GAP + TITLE_W + EDGE), t: 24, b: 14 },
+      annotations,
+      separators: ',.',                                   // desimal ',', ribuan '.' (format Indonesia)
+      paper_bgcolor: '#fff', plot_bgcolor: '#fff', showlegend: false,
+      font: { family: FONT_STACK, size: 12, color: INK_MUTED },
+      bargap: 0.45, barcornerradius: 3,                   // guide: bar tops radius 2-3px, proporsi batang seperti contoh
+      hovermode: 'closest', hoverdistance: 9, dragmode: false,
+      xaxis: { type: 'date', tickformat: '%-d/%m/%Y', showgrid: false, showline: true, linecolor: INK, linewidth: 1, tickfont: tickFont, automargin: true, fixedrange: true,
+               ...(rows.length <= 14 ? { dtick: 86400000 * (rows.length > 7 ? 2 : 1) } : {}) },
+      yaxis:  { side: 'right', tickfont: tickFont, tickformat: ',.0f', tickvals: incomeScale.vals, gridcolor: LINE, gridwidth: 1, zeroline: false, range: [0, incomeScale.max], autorange: false, fixedrange: true },
+      yaxis2: { overlaying: 'y', side: 'left', tickfont: tickFont, tickformat: ',.0f', tickvals: orderScale.vals, showgrid: false, zeroline: false, range: [0, orderScale.max], autorange: false, fixedrange: true },
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+
+    const draw = () => Plotly.react(el, traces, layout, cfg).then(bindHover);
+    if (chartFirst || reduceMotion) { draw(); chartFirst = false; return; }
+    // Transisi halus saat ganti filter: pudar sebentar, render, lalu muncul lagi.
+    el.classList.add('is-updating');
+    setTimeout(() => { draw(); requestAnimationFrame(() => el.classList.remove('is-updating')); }, 170);
+  }
+
+  // ---------- Table ----------
+  function renderTable(rows) {
+    const cols = DATA.columns, t = $('detailTable');
+    t.tHead.innerHTML = '<tr>' + cols.map(c => '<th class="' + (c.numeric ? 'num' : '') + '">' + c.label + '</th>').join('') + '</tr>';
+    if (!rows.length) { t.tBodies[0].innerHTML = ''; t.tFoot.innerHTML = ''; $('tableWrap').style.display = 'none'; $('tableEmpty').style.display = 'block'; return; }
+    $('tableWrap').style.display = 'block'; $('tableEmpty').style.display = 'none';
+
+    const cell = (c, v) => {
+      if (c.key === 'date') return '<td class="strong">' + fmtDateShort(v) + '</td>';
+      if (!c.numeric) return '<td>' + (v == null ? '' : v) + '</td>';
+      const cls = ['num']; if (c.key === 'daily_income') cls.push('income'); if (Math.round(Number(v) || 0) === 0) cls.push('zero');
+      return '<td class="' + cls.join(' ') + '">' + fmt(v) + '</td>';
+    };
+    t.tBodies[0].innerHTML = rows.map(r => '<tr>' + cols.map(c => cell(c, r[c.key])).join('') + '</tr>').join('');
+    t.tFoot.innerHTML = '<tr>' + cols.map((c, i) => i === 0 ? '<td>Total</td>' : !c.numeric ? '<td></td>'
+      : '<td class="num">' + fmt(rows.reduce((a, r) => a + (Number(r[c.key]) || 0), 0)) + '</td>').join('') + '</tr>';
+  }
+
+  // ---------- Download (CSV / Excel / JSON, mengikuti filter aktif) ----------
+  function exportRows() {
+    return currentRows.map(r => { const o = {}; DATA.columns.forEach(c => { o[c.key] = c.numeric ? Math.round(Number(r[c.key]) || 0) : r[c.key]; }); return o; });
+  }
+  // SheetJS baru dimuat saat tombol Excel pertama kali diklik, supaya halaman tetap ringan.
+  let xlsxLoading = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxLoading) {
+      xlsxLoading = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.integrity = 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw';   // SRI: tolak kalau isi file berubah
+        s.crossOrigin = 'anonymous';
+        s.onload = () => resolve(window.XLSX);
+        s.onerror = () => { xlsxLoading = null; reject(new Error('Gagal memuat library Excel')); };
+        document.head.appendChild(s);
+      });
+    }
+    return xlsxLoading;
+  }
+  function buildXlsx(XLSX, cols, rows) {
+    const toDateObj = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+    const aoa = [cols.map(c => c.label)]
+      .concat(rows.map(r => cols.map(c => c.key === 'date' ? toDateObj(r[c.key]) : r[c.key])))
+      .concat([cols.map((c, i) => i === 0 ? 'Total' : !c.numeric ? '' : rows.reduce((a, r) => a + r[c.key], 0))]);
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+    // Format angka ribuan tanpa desimal + format tanggal D/MM/YYYY
+    for (let r = 1; r < aoa.length; r++) {
+      cols.forEach((c, ci) => {
+        const cell = ws[XLSX.utils.encode_cell({ r, c: ci })];
+        if (!cell) return;
+        if (c.numeric) cell.z = '#,##0';
+        else if (c.key === 'date' && cell.t === 'd') cell.z = 'd/mm/yyyy';
+      });
+    }
+    ws['!cols'] = cols.map(c => ({ wch: c.key === 'outlet_name' ? 40 : c.key === 'date' ? 12 : Math.max(12, c.label.length + 2) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Revenue Sharing');
+    return XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellDates: true });
+  }
+  function save(content, mime, ext) {
+    const range = state.start + '_' + state.end;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+    a.download = DATA.outlet_code + '_sales_detail_' + range + '.' + ext;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function download(kind, btn) {
+    const cols = DATA.columns, rows = exportRows();
+    if (kind === 'json') {
+      save(JSON.stringify({ outlet_code: DATA.outlet_code, outlet_title: DATA.outlet_title, start: state.start, end: state.end, rows }, null, 2), 'application/json;charset=utf-8', 'json');
+    } else if (kind === 'xlsx') {
+      const label = btn && btn.querySelector('.dl-text');
+      if (btn) btn.disabled = true;
+      if (label) label.textContent = 'Excel…';
+      loadXlsx()
+        .then(XLSX => save(buildXlsx(XLSX, cols, rows), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'))
+        .catch(() => { if (label) { label.textContent = 'Gagal'; setTimeout(() => { label.textContent = 'Excel'; }, 1800); } })
+        .finally(() => { if (btn) btn.disabled = false; if (label && label.textContent === 'Excel…') label.textContent = 'Excel'; });
+    } else if (kind === 'csv') {
+      const esc = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const lines = [cols.map(c => esc(c.label)).join(',')].concat(rows.map(r => cols.map(c => esc(r[c.key])).join(',')));
+      save('﻿' + lines.join('\n'), 'text/csv;charset=utf-8', 'csv');
+    }
+  }
+
+  // ---------- Date popover + kalender range ----------
+  const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const cal = { month: null, a: null, b: null, hover: null };          // month = 'YYYY-MM-01'; a/b = tanggal klik pertama/kedua
+  const monthStart = s => s.slice(0, 8) + '01';
+  const addMonths = (first, n) => { const [y, m] = first.split('-').map(Number); return toStr(new Date(Date.UTC(y, m - 1 + n, 1))); };
+  const sortedSel = () => { const s = cal.a, e = cal.b || cal.hover; if (!s || !e) return [s, s]; return s <= e ? [s, e] : [e, s]; };
+
+  function paintCal() {
+    const [s, e] = sortedSel();
+    $('calDays').querySelectorAll('.cal-day[data-date]').forEach(btn => {
+      const d = btn.dataset.date;
+      btn.classList.toggle('in-range', !!(s && e && d >= s && d <= e));
+      btn.classList.toggle('start', d === s);
+      btn.classList.toggle('end', d === e);
+    });
+    const sel = $('calSel'), apply = $('customApply');
+    if (cal.a && cal.b) {
+      const [x, z] = cal.a <= cal.b ? [cal.a, cal.b] : [cal.b, cal.a];
+      sel.textContent = x === z ? fmtDateShort(x) : fmtDateShort(x) + ' – ' + fmtDateShort(z);
+      sel.classList.remove('muted'); apply.disabled = false;
+    } else if (cal.a) {
+      sel.textContent = fmtDateShort(cal.a) + ' – pilih tanggal akhir'; sel.classList.add('muted'); apply.disabled = true;
+    } else {
+      sel.textContent = 'Pilih tanggal awal'; sel.classList.add('muted'); apply.disabled = true;
+    }
+  }
+  function renderCal() {
+    const [lo, hi] = lockWindow(), first = cal.month, [y, m] = first.split('-').map(Number);
+    $('calMonth').textContent = MONTHS_EN[m - 1] + ' ' + y;
+    $('calPrev').disabled = first <= monthStart(lo);
+    $('calNext').disabled = first >= monthStart(hi);
+    const lead = (toDate(first).getUTCDay() + 6) % 7;                  // minggu dimulai Senin
+    const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const has = new Set(DATA.rows.map(r => r.date));
+    let html = '';
+    for (let i = 0; i < lead; i++) html += '<span></span>';
+    for (let d = 1; d <= daysIn; d++) {
+      const ds = first.slice(0, 8) + String(d).padStart(2, '0');
+      const off = ds < lo || ds > hi;
+      const cls = ['cal-day'];
+      if (ds === hi) cls.push('today');
+      if (!off && !has.has(ds)) cls.push('no-data');
+      html += '<button type="button" class="' + cls.join(' ') + '" data-date="' + ds + '"' + (off ? ' disabled' : '') + '>' + d + '</button>';
+    }
+    $('calDays').innerHTML = html;
+    paintCal();
+  }
+
+  function setupFilter() {
+    const chip = $('dateChip'), pop = $('datePopover');
+    // Preset yang seluruh rentangnya sebelum data_start (mis. "Last month" saat outlet baru buka) disembunyikan.
+    const [lo, hi] = lockWindow();
+    $('presetGrid').innerHTML = PRESETS.filter(p => presetRange(p.key)[1] >= lo)
+      .map(p => '<button type="button" class="pp" data-key="' + p.key + '" aria-pressed="false">' + p.label + '</button>').join('');
+    $('rangeError').textContent = 'Data tersedia: ' + fmtDateShort(lo) + ' – ' + fmtDateShort(hi);
+
+    const open = () => {
+      const isCustom = state.preset === 'custom';
+      cal.a = isCustom ? state.start : null; cal.b = isCustom ? state.end : null; cal.hover = null;
+      cal.month = monthStart(state.end || hi);
+      renderCal();
+      pop.classList.add('open'); chip.setAttribute('aria-expanded', 'true');
+    };
+    const close = () => { pop.classList.remove('open'); chip.setAttribute('aria-expanded', 'false'); };
+    chip.addEventListener('click', () => { pop.classList.contains('open') ? close() : open(); });
+    $('presetGrid').addEventListener('click', e => { const b = e.target.closest('.pp'); if (!b) return; state.preset = b.dataset.key; close(); applyFilter(); });
+
+    $('calPrev').addEventListener('click', () => { cal.month = addMonths(cal.month, -1); renderCal(); });
+    $('calNext').addEventListener('click', () => { cal.month = addMonths(cal.month, 1); renderCal(); });
+    $('calDays').addEventListener('click', e => {
+      const b = e.target.closest('.cal-day'); if (!b || b.disabled) return;
+      if (!cal.a || cal.b) { cal.a = b.dataset.date; cal.b = null; }   // klik pertama (atau mulai ulang)
+      else { cal.b = b.dataset.date; }                                   // klik kedua = tanggal akhir
+      cal.hover = null; paintCal();
+    });
+    $('calDays').addEventListener('mouseover', e => {
+      const b = e.target.closest('.cal-day'); if (!b || b.disabled || !cal.a || cal.b) return;
+      cal.hover = b.dataset.date; paintCal();                            // pratinjau rentang saat memilih tanggal akhir
+    });
+    $('calDays').addEventListener('mouseleave', () => { if (cal.a && !cal.b) { cal.hover = null; paintCal(); } });
+    $('customApply').addEventListener('click', () => {
+      if (!cal.a || !cal.b) return;
+      const [x, z] = cal.a <= cal.b ? [cal.a, cal.b] : [cal.b, cal.a];
+      state = { preset: 'custom', start: x, end: z }; close(); applyFilter();
+    });
+    // composedPath: klik di tombol kalender yang di-render ulang tetap dianggap "di dalam popover"
+    document.addEventListener('click', e => { const path = e.composedPath(); if (!path.includes(pop) && !path.includes(chip)) close(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  }
+
+  // ---------- Init ----------
+  loadData().then(data => {
+    if (!data || !Array.isArray(data.rows)) { document.querySelector('main').innerHTML = '<div class="empty">Data tidak tersedia.</div>'; return; }
+    DATA = data;
+    DATA.rows.sort((a, b) => a.date < b.date ? -1 : 1);
+    { const [lo, hi] = lockWindow(); DATA.rows = DATA.rows.filter(r => r.date >= lo && r.date <= hi); }   // lock L60D + data_start
+    const code = DATA.outlet_title.split(' ')[0], name = DATA.outlet_title.slice(code.length + 1);
+    $('pageTitle').textContent = name || DATA.outlet_title;
+    $('eyebrow').textContent = 'Sales performance · Outlet ' + DATA.outlet_code;
+    $('tableEyebrow').textContent = DATA.outlet_title;
+    $('metaRefreshed').textContent = DATA.generated_at + ' WIB';
+    const caption = 'Source: Jiwa Group sales data · Refreshed ' + DATA.generated_at + ' WIB';
+    $('chartCaption').textContent = caption; $('tableCaption').textContent = caption;
+    // Badge "New Store" (guide: .jj-badge--new untuk toko baru) tampil selama outlet masih baru, yaitu <= 60 hari sejak data_start.
+    if (DATA.data_start && daysBetween(DATA.data_start, todayJakarta()) <= lookback()) $('newBadge').hidden = false;
+    document.querySelectorAll('.dl [data-fmt]').forEach(b => b.addEventListener('click', () => download(b.dataset.fmt, b)));
+    setupFilter(); applyFilter();
+  });
+})();
+</script>
+</body>
+</html>
