@@ -34,9 +34,11 @@ local_tz = pendulum.timezone("Asia/Jakarta")
 
 def _target_date_yesterday_jakarta(**context):
     """Kemarin di Asia/Jakarta relatif ke data_interval_end (fallback logical_date)."""
-    anchor = context.get("data_interval_end") or context.get("logical_date")
+    dag_run = context.get("dag_run")
+    anchor = (context.get("data_interval_end") or context.get("logical_date")
+              or (getattr(dag_run, "run_after", None) if dag_run is not None else None))
     if anchor is None:
-        raise ValueError("context missing data_interval_end and logical_date")
+        raise ValueError("context missing data_interval_end, logical_date and run_after")
     return pendulum.instance(anchor).in_timezone(local_tz).subtract(days=1).to_date_string()
 
 
