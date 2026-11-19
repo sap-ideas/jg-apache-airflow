@@ -90,7 +90,8 @@ repository/
 │   ├── landlord_revenue_sharing/
 │   │   ├── api_integration_landlord_01065/  # Revenue sharing → API landlord Lippo Mall (01065)
 │   │   ├── api_integration_landlord_00570/  # Revenue sharing → API landlord (00570, dipicu Asset)
-│   │   └── f_daily_estimated_income_per_store/  # Estimasi uang masuk harian per outlet (landlord)
+│   │   ├── f_daily_estimated_income_per_store/  # Estimasi uang masuk harian per outlet (landlord)
+│   │   └── landlord_dashboard_01165/  # Dashboard HTML 01165 → data_report.custom_menus (dipicu Asset)
 │   └── maintenance/                #   Cleanup log & metadata Airflow
 │
 ├── logs/                           # Runtime logs (auto-generated, gitignored)
