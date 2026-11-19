@@ -20,6 +20,7 @@ Untuk cara mengelola Airflow Variables & secrets, lihat
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `etl_sejutajiwa_riders_ksj_link_mapping` | `0 8 * * *` (08:00) | Mapping rider→hub dari KSJ Link, insert ke MySQL Lake+DWH |
 | [sjw_riders_mapping](./sjw_riders_mapping.md) | `sync_sejutajiwa_riders_hubs_to_postgresql` | Dipicu via Airflow **Asset** (bukan cron) | Sync full-table mapping MySQL → 2 database PostgreSQL |
 | [f_hourly_rider_performance_tito](./f_hourly_rider_performance_tito.md) | `f_hourly_rider_performance_tito` | `0 8 * * *` (08:00) | Performa rider per jam berbasis check-in/out (TI-TO) |
+| [ksj_rider_commission_staging](./ksj_rider_commission_staging.md) | `ksj_rider_commission_staging` | `0 2 * * *` (02:00) | Komisi rider harian/mingguan minggu berjalan → DB KSJ Link **staging** (milik tim tech) |
 | [f_rider_mangkal_summary](./f_rider_mangkal_summary.md) | `f_rider_mangkal_summary` | `0 8,11,15 * * *` (3x/hari) | Deteksi sesi "mangkal" (loitering/parkir) rider dari log lokasi |
 | [f_daily_ksj_app_user_session](./f_daily_ksj_app_user_session.md) | `f_daily_ksj_app_user_session` | `0 6 * * *` (06:00) | Gabungkan sesi user app JiwaPlus + KSJ (rider-found rate, klik WA) |
 | [api_integration_landlord_01065](./api_integration_landlord_01065.md) | `api_landlord_revenue_sharing_01065` | `0 8 * * *` (08:00) | Kirim revenue sharing harian ke API landlord (Lippo Mall tenant portal) |
