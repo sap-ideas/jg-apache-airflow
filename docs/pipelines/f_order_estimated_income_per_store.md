@@ -70,4 +70,4 @@ Outlet itu juga harus ada di `OUTLET_CODES` DAG `f_daily_estimated_income_per_st
 ## Catatan
 
 - Header ganda di Data Lake (`transaction_id` sama, mis. 00570 pada 2026-03-21, 2026-05-27, 2026-09-29) membuat ETL berhenti (fail loud) di tanggal tersebut.
-- Belum ada DAG pengirim API per order; DAG itu nanti subscribe ke Asset `order_est_income_for_landlord`.
+- Saat sukses, Asset `order_est_income_for_landlord` di-emit dengan `extra = {start_date, end_date}` (rentang yang baru di-load). Dipakai `api_landlord_revenue_sharing_00570_per_order` sebagai rentang kirim.
