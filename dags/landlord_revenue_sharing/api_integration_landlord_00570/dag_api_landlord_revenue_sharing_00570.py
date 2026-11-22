@@ -75,7 +75,7 @@ def _target_date_from_upstream(**context):
     dengan DAG tsb, jadi selalu sama dengan tanggal yang baru di-load ke
     daily_est_income_per_store_for_landlord. Satu hari saja, bukan window.
     """
-    events = context.get("triggering_dataset_events") or {}
+    events = context.get("triggering_asset_events") or {}  # Airflow 3: dulu triggering_dataset_events
     upstream = sorted(
         (ev.timestamp, ev.source_dag_run)
         for evs in events.values() for ev in evs
@@ -83,7 +83,7 @@ def _target_date_from_upstream(**context):
     )
     if not upstream:
         raise ValueError(
-            "Tidak ada upstream DagRun dari dataset event. Untuk kirim ulang tanggal tertentu, "
+            "Tidak ada upstream DagRun dari asset event. Untuk kirim ulang tanggal tertentu, "
             "trigger manual DAG ini dan isi param start_date / end_date."
         )
 
