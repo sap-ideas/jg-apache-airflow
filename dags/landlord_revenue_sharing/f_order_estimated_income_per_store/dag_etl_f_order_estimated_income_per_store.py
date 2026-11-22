@@ -42,7 +42,7 @@ local_tz = pendulum.timezone("Asia/Jakarta")
 
 # Harus sama dengan outlet di DAG f_daily_estimated_income_per_store
 DATASET_DAILY_EST_INCOME = Asset("f_daily_estimated_income_per_store://daily_est_income_per_store_for_landlord")
-# Emitted on success; downstream per-order landlord DAGs can subscribe to it
+# Emitted on success (extra = {start_date, end_date} yang di-load); dipakai api_landlord_revenue_sharing_00570_per_order
 DATASET_ORDER_EST_INCOME = Asset("f_order_estimated_income_per_store://order_est_income_for_landlord")
 
 
@@ -100,6 +100,9 @@ def run_task(**context):
         print(f"  TARGET DATE: {start_date} (tanggal yang diproses f_daily_estimated_income_per_store)")
 
     run_all(CONFIG_DW, start_date_str=start_date, end_date_str=end_date, load_data_by=load_data_by)
+
+    # rentang yang baru di-load dioper ke DAG downstream (api_landlord_revenue_sharing_00570_per_order)
+    context["outlet_events"][DATASET_ORDER_EST_INCOME].extra = {"start_date": start_date, "end_date": end_date}
 
 
 default_args = {
