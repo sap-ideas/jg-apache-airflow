@@ -12,6 +12,7 @@ Untuk cara mengelola Airflow Variables & secrets, lihat
 |---|---|---|---|
 | [iseller_pusat_fulfillment](./iseller_pusat_fulfillment.md) | `etl_iseller_pusat_fulfillment` | `0 9 * * *` (09:00) | Backfill unfulfilled orders via iSeller API, lalu redump 8 tabel summary DWH |
 | [iseller_pusat_backfilling](./iseller_pusat_backfilling.md) | `etl_iseller_pusat_backfilling` | `50 1 * * *` (01:50) | Backfilling order H-8 s/d H-7 yang tidak ada di Data Lake (ingest tidak menariknya), Data Lake only |
+| [iseller_pusat_intraday](./iseller_pusat_intraday.md) | `etl_iseller_pusat_intraday` | `0 6-21 * * *` (tiap jam 06:00–21:00) | Data hari H iSeller Pusat ke tabel intraday Data Lake (hanya hari ini), upsert per order, H-1 dihapus otomatis, email tiap run |
 | [iseller_mitra_ingestion](./iseller_mitra_ingestion.md) | `etl_iseller_mitra_ingestion` | `0 6 * * *` (06:00) | Ingestion harian order Mitra H-1 dari iSeller API ke Data Lake (order yang sudah ada dilewati), tanpa redump DWH |
 | [iseller_mitra_backfilling](./iseller_mitra_backfilling.md) | `etl_iseller_mitra_backfilling` | Dipicu `etl_iseller_mitra_ingestion` (rantai harian) | Backfilling order Mitra H-8 s/d H-7 yang tidak ada di Data Lake (ingest tidak menariknya), Data Lake only |
 | [iseller_mitra_fulfillment](./iseller_mitra_fulfillment.md) | `etl_iseller_mitra_fulfillment` | Dipicu `etl_iseller_mitra_backfilling` (rantai harian) | Backfill unfulfilled orders Mitra via iSeller API ke Data Lake (tanpa redump DWH) |

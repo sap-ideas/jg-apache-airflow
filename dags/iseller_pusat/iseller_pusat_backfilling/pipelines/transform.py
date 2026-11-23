@@ -4,7 +4,7 @@ Transform backfilling iSeller Pusat: raw GetOrders -> header + details DataFrame
 Logika ini identik dengan transform di iseller_pusat_fulfillment/pipelines/pipeline_backfill_fulfillment.py
 (sudah diuji terhadap notebook ingest transaction_janji_jiwa_pusat_v3): sumber diskon discount_order_amount,
 pajak dari tax_percentage API, combo_share, group per (order_detail_id, transactions_type), sales_type 7 kondisi,
-list SJW = ingest v3. Kalau logika ini diubah, ubah juga di file pasangannya.
+list SJW = ingest v3. Kalau logika ini diubah, ubah juga di file pasangannya (termasuk salinan di iseller_pusat_intraday/pipelines/transform.py).
 """
 
 import datetime
