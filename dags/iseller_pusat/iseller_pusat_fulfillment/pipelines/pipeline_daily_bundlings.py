@@ -41,7 +41,8 @@ def run_daily_bundlings(start_date, end_date, config_dw):
                 WHERE 
                     bundling_id != ''
                     AND type = 'comboset'
-                    AND DATE_FORMAT(load_data_at, "%Y-%m-%d") >= DATE_SUB('{start_date}', INTERVAL 1 DAY)
+                    AND transaction_date >= DATE_SUB('{start_date}', INTERVAL 1 DAY)
+                    AND transaction_date < DATE_ADD('{end_date}', INTERVAL 2 DAY)
             ) AS unique_order_details
             GROUP BY order_id, order_detail_id, bundling_id, bundling_name
         ) AS details
@@ -69,7 +70,8 @@ def run_daily_bundlings(start_date, end_date, config_dw):
             WHERE 
                 bundling_id != ''
                 AND type = 'comboset'
-                AND DATE_FORMAT(load_data_at, "%Y-%m-%d") >= DATE_SUB('{start_date}', INTERVAL 1 DAY)
+                AND transaction_date >= DATE_SUB('{start_date}', INTERVAL 1 DAY)
+                AND transaction_date < DATE_ADD('{end_date}', INTERVAL 2 DAY)
             GROUP BY 1, 2, 3, 4
         ) AS details
         GROUP BY order_id, bundling_name

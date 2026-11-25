@@ -34,7 +34,8 @@ def run_daily_items_sales_type(start_date, end_date, config_dw):
             SUM(transaction_items.tax_amount) AS total_taxes,
             SUM(transaction_items.total_amount) AS total_collected
         FROM transactions_items_iseller_pusat transaction_items
-        WHERE DATE_FORMAT(load_data_at, "%Y-%m-%d") >= DATE_SUB('{start_date}', INTERVAL 1 DAY)
+        WHERE transaction_date >= DATE_SUB('{start_date}', INTERVAL 1 DAY)
+            AND transaction_date < DATE_ADD('{end_date}', INTERVAL 2 DAY)
         GROUP BY 1, 2, 3, 4
     """)
     df_details = pd.DataFrame(cursor.fetchall(), columns=[
